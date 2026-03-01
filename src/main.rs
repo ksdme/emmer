@@ -41,7 +41,7 @@ fn main() {
 
     let mut state = State {
         count: 0,
-        color: 255,
+        offset: 0,
 
         registry_state,
         output_state,
@@ -63,7 +63,7 @@ fn main() {
 
 pub struct State {
     count: u64,
-    color: u8,
+    offset: u16,
 
     registry_state: RegistryState,
     output_state: OutputState,
@@ -78,27 +78,7 @@ pub struct State {
 }
 
 impl State {
-    fn make_buffer(&mut self) {
-        let (buffer, _) = self
-            .pool
-            .create_buffer(
-                self.width.into(),
-                self.height.into(),
-                (self.width * 4).into(),
-                wl_shm::Format::Argb8888,
-            )
-            .expect("wl_shm_pool");
-
-        let surface = self.window.wl_surface();
-        buffer.attach_to(surface).expect("buffer");
-        surface.commit();
-
-        self.buffer = Some(buffer);
-    }
-
     fn draw(&mut self, qh: &wayland_client::QueueHandle<Self>) {
-        self.color = self.color.wrapping_add(1);
-
         let (buffer, canvas) = self
             .pool
             .create_buffer(
@@ -109,14 +89,28 @@ impl State {
             )
             .expect("create buffer");
 
-        for (no, pixel) in canvas.chunks_exact_mut(4).enumerate() {
-            if no % 2 == 0 {
-                pixel[0] = 255;
-                pixel[1] = self.color;
-                pixel[2] = self.color;
-                pixel[3] = self.color;
-            }
+        let mut frame_surface = cairo::ImageSurface::create(
+            cairo::Format::ARgb32,
+            self.width.into(),
+            self.height.into(),
+        )
+        .expect("cairo image surface");
+
+        {
+            let frame_context = cairo::Context::new(&frame_surface).expect("cairo context");
+            frame_context.set_source_rgb(1.0, 1.0, 1.0);
+            frame_context.paint().expect("cairo background paint");
+
+            frame_context.set_source_rgb(0.0, 0.0, 0.0);
+            frame_context.move_to(self.offset.into(), 0.0);
+            frame_context.line_to((self.width - self.offset).into(), (self.height - 1).into());
+
+            frame_context.set_line_width(2.0);
+            frame_context.stroke().expect("cairgo stroke");
         }
+
+        let data = frame_surface.data().expect("cairo data");
+        canvas.copy_from_slice(&data);
 
         let surface = self.window.wl_surface();
         buffer.attach_to(surface).expect("attach");
@@ -190,6 +184,7 @@ impl CompositorHandler for State {
         _time: u32,
     ) {
         self.count += 1;
+        self.offset = (self.offset + 1) % self.width;
         println!("wl_compositor: frame ({})", self.count);
         self.draw(qh);
     }

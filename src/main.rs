@@ -53,8 +53,10 @@ fn main() {
         shm,
         pool,
         buffer: None,
+
+        done: false,
     };
-    loop {
+    while !state.done {
         event_queue
             .blocking_dispatch(&mut state)
             .expect("event_dispatch");
@@ -75,6 +77,8 @@ pub struct State {
     shm: Shm,
     pool: SlotPool,
     buffer: Option<Buffer>,
+
+    done: bool,
 }
 
 impl State {
@@ -219,6 +223,7 @@ impl xdg::window::WindowHandler for State {
         _window: &xdg::window::Window,
     ) {
         println!("xdgshell: request_close");
+        self.done = true;
     }
 
     fn configure(

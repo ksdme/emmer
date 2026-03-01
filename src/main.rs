@@ -83,6 +83,7 @@ pub struct State {
 
 impl State {
     fn draw(&mut self, qh: &wayland_client::QueueHandle<Self>) {
+        // TODO: use double buffer instead of creating one everytime.
         let (buffer, canvas) = self
             .pool
             .create_buffer(

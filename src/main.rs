@@ -1,21 +1,14 @@
 use smithay_client_toolkit::{
     compositor::{CompositorHandler, CompositorState},
-    delegate_compositor, delegate_output, delegate_registry, delegate_shm, delegate_xdg_shell,
-    delegate_xdg_window,
+    delegate_compositor, delegate_layer, delegate_output, delegate_registry, delegate_shm,
     output::{OutputHandler, OutputState},
     registry::{ProvidesRegistryState, RegistryState},
     registry_handlers,
     shell::{
         WaylandSurface,
-        xdg::{
-            self, XdgShell, XdgSurface,
-            window::{Window, WindowDecorations},
-        },
+        wlr_layer::{Anchor, Layer, LayerShell, LayerShellHandler, LayerSurface},
     },
-    shm::{
-        Shm, ShmHandler,
-        slot::{Buffer, SlotPool},
-    },
+    shm::{Shm, ShmHandler, slot::SlotPool},
 };
 use wayland_client::{Connection, Proxy, globals::registry_queue_init, protocol::wl_shm};
 
@@ -29,15 +22,21 @@ fn main() {
     let registry_state = RegistryState::new(&globals);
 
     let compositor_state = CompositorState::bind(&globals, &q_handle).expect("wl compositor state");
-    let xdg_shell = XdgShell::bind(&globals, &q_handle).expect("xdgshell");
+    let layer_shell = LayerShell::bind(&globals, &q_handle).expect("zwlr_layer_shell_v1");
 
-    let surface = compositor_state.create_surface(&q_handle);
-    let window = xdg_shell.create_window(surface, WindowDecorations::ServerDefault, &q_handle);
-
-    window.commit();
+    let layer_surface = layer_shell.create_layer_surface(
+        &q_handle,
+        compositor_state.create_surface(&q_handle),
+        Layer::Top,
+        Option::<String>::None,
+        None,
+    );
+    layer_surface.set_size(128, 64);
+    layer_surface.set_anchor(Anchor::TOP | Anchor::RIGHT);
+    layer_surface.commit();
 
     let shm = Shm::bind(&globals, &q_handle).expect("wl_shm");
-    let pool = SlotPool::new(256 * 256, &shm).expect("wl_shm_pool");
+    let pool = SlotPool::new(128 * 64, &shm).expect("wl_shm_pool");
 
     let mut state = State {
         count: 0,
@@ -46,13 +45,12 @@ fn main() {
         registry_state,
         output_state,
 
-        window,
-        width: 0,
-        height: 0,
+        layer_surface,
+        width: 128,
+        height: 64,
 
         shm,
         pool,
-        buffer: None,
 
         done: false,
     };
@@ -70,13 +68,12 @@ pub struct State {
     registry_state: RegistryState,
     output_state: OutputState,
 
-    window: Window,
+    layer_surface: LayerSurface,
     width: u16,
     height: u16,
 
     shm: Shm,
     pool: SlotPool,
-    buffer: Option<Buffer>,
 
     done: bool,
 }
@@ -103,7 +100,7 @@ impl State {
 
         {
             let frame_context = cairo::Context::new(&frame_surface).expect("cairo context");
-            frame_context.set_source_rgb(1.0, 1.0, 1.0);
+            frame_context.set_source_rgba(1.0, 1.0, 1.0, 0.5);
             frame_context.paint().expect("cairo background paint");
 
             frame_context.set_source_rgb(0.0, 0.0, 0.0);
@@ -112,12 +109,29 @@ impl State {
 
             frame_context.set_line_width(2.0);
             frame_context.stroke().expect("cairgo stroke");
+
+            frame_context.select_font_face(
+                "Ubuntu",
+                cairo::FontSlant::Normal,
+                cairo::FontWeight::Normal,
+            );
+            frame_context.set_font_size(16.0);
+
+            let extents = frame_context
+                .text_extents("Hello")
+                .expect("cairo text extents");
+            frame_context.move_to(
+                (self.width / 2) as f64 - (extents.width() / 2.0),
+                (self.height / 2) as f64 + (extents.height() / 2.0),
+            );
+
+            frame_context.show_text("Hello").expect("cairo text");
         }
 
         let data = frame_surface.data().expect("cairo data");
         canvas.copy_from_slice(&data);
 
-        let surface = self.window.wl_surface();
+        let surface = self.layer_surface.wl_surface();
         buffer.attach_to(surface).expect("attach");
         surface.damage_buffer(0, 0, self.width.into(), self.height.into());
         surface.frame(qh, surface.clone());
@@ -216,37 +230,29 @@ impl CompositorHandler for State {
 }
 delegate_compositor!(State);
 
-impl xdg::window::WindowHandler for State {
-    fn request_close(
+impl LayerShellHandler for State {
+    fn closed(
         &mut self,
         _conn: &Connection,
         _qh: &wayland_client::QueueHandle<Self>,
-        _window: &xdg::window::Window,
+        _layer: &smithay_client_toolkit::shell::wlr_layer::LayerSurface,
     ) {
-        println!("xdgshell: request_close");
-        self.done = true;
+        println!("wl_layer_shell_handler: closed");
     }
 
     fn configure(
         &mut self,
         _conn: &Connection,
         qh: &wayland_client::QueueHandle<Self>,
-        window: &xdg::window::Window,
-        _configure: xdg::window::WindowConfigure,
+        _layer: &smithay_client_toolkit::shell::wlr_layer::LayerSurface,
+        _configure: smithay_client_toolkit::shell::wlr_layer::LayerSurfaceConfigure,
         _serial: u32,
     ) {
-        println!("xdgshell: configure");
-
-        window.set_window_geometry(0, 0, 256, 256);
-        window.set_app_id("xyz.ksdme.wl");
-        self.width = 256;
-        self.height = 256;
-
+        println!("wl_layer_shell_handler: configure");
         self.draw(qh);
     }
 }
-delegate_xdg_shell!(State);
-delegate_xdg_window!(State);
+delegate_layer!(State);
 
 impl ShmHandler for State {
     fn shm_state(&mut self) -> &mut Shm {

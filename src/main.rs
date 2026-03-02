@@ -1,3 +1,5 @@
+use std::f64::consts::PI;
+
 use smithay_client_toolkit::{
     compositor::{CompositorHandler, CompositorState},
     delegate_compositor, delegate_layer, delegate_output, delegate_registry, delegate_shm,
@@ -24,13 +26,15 @@ fn main() {
     let compositor_state = CompositorState::bind(&globals, &q_handle).expect("wl compositor state");
     let layer_shell = LayerShell::bind(&globals, &q_handle).expect("zwlr_layer_shell_v1");
 
+    let surface = compositor_state.create_surface(&q_handle);
     let layer_surface = layer_shell.create_layer_surface(
         &q_handle,
-        compositor_state.create_surface(&q_handle),
+        surface.clone(),
         Layer::Top,
         Option::<String>::None,
         None,
     );
+
     layer_surface.set_size(128, 64);
     layer_surface.set_anchor(Anchor::TOP | Anchor::RIGHT);
     layer_surface.commit();
@@ -100,32 +104,42 @@ impl State {
 
         {
             let frame_context = cairo::Context::new(&frame_surface).expect("cairo context");
-            frame_context.set_source_rgba(1.0, 1.0, 1.0, 0.5);
-            frame_context.paint().expect("cairo background paint");
+
+            let r = self.height as f64 / 2.0;
+            frame_context.new_sub_path();
+            frame_context.arc(r, r, r, PI, 3.0 * PI / 2.0);
+            frame_context.arc(self.width as f64 - r, r, r, 3.0 * PI / 2.0, 2.0 * PI);
+            frame_context.arc(
+                self.width as f64 - r,
+                self.height as f64 - r,
+                r,
+                0.0,
+                PI / 2.0,
+            );
+            frame_context.arc(r, self.height as f64 - r, r, PI / 2.0, PI);
+            frame_context.close_path();
+
+            frame_context.set_source_rgba(1.0, 1.0, 1.0, 0.55);
+            frame_context.fill().expect("cairo fill");
 
             frame_context.set_source_rgb(0.0, 0.0, 0.0);
-            frame_context.move_to(self.offset.into(), 0.0);
-            frame_context.line_to((self.width - self.offset).into(), (self.height - 1).into());
-
-            frame_context.set_line_width(2.0);
-            frame_context.stroke().expect("cairgo stroke");
-
             frame_context.select_font_face(
-                "Ubuntu",
+                "Ubuntu Mono",
                 cairo::FontSlant::Normal,
                 cairo::FontWeight::Normal,
             );
             frame_context.set_font_size(16.0);
 
+            let now = jiff::Zoned::now().strftime("%H:%M:%S").to_string();
             let extents = frame_context
-                .text_extents("Hello")
+                .text_extents(&now)
                 .expect("cairo text extents");
+
             frame_context.move_to(
                 (self.width / 2) as f64 - (extents.width() / 2.0),
                 (self.height / 2) as f64 + (extents.height() / 2.0),
             );
-
-            frame_context.show_text("Hello").expect("cairo text");
+            frame_context.show_text(&now).expect("cairo text");
         }
 
         let data = frame_surface.data().expect("cairo data");
@@ -134,7 +148,7 @@ impl State {
         let surface = self.layer_surface.wl_surface();
         buffer.attach_to(surface).expect("attach");
         surface.damage_buffer(0, 0, self.width.into(), self.height.into());
-        surface.frame(qh, surface.clone());
+        surface.frame(&qh, surface.clone());
         surface.commit();
     }
 }

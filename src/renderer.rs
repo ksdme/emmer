@@ -1,4 +1,6 @@
-use std::{collections::VecDeque, f64::consts::PI, ops::Range};
+use std::{collections::VecDeque, f64::consts::PI};
+
+use wide::u32x4;
 
 /// Represents a color in cairo as ARGB (0..1).
 /// TODO: These should be single byte values.
@@ -29,55 +31,6 @@ pub struct Card {
     pub border: Option<Border>,
     pub radius: Option<f64>,
     pub shadow: Option<Shadow>,
-}
-
-fn _blur(pixel: &mut [u8], sum: &mut wide::u32x4, stack: &mut VecDeque<wide::u32x4>, blur: usize) {
-    let p_pixel = wide::u32x4::new([
-        pixel[0] as u32,
-        pixel[1] as u32,
-        pixel[2] as u32,
-        pixel[3] as u32,
-    ]);
-
-    if stack.len() >= (2 * blur) - 1 {
-        if let Some(removal) = stack.pop_front() {
-            *sum -= removal;
-        }
-    }
-
-    stack.push_back(p_pixel);
-    *sum += p_pixel;
-
-    let lanes = sum.as_array();
-    let count = stack.len() as u32;
-    pixel[0] = (lanes[0] / count) as u8;
-    pixel[1] = (lanes[1] / count) as u8;
-    pixel[2] = (lanes[2] / count) as u8;
-    pixel[3] = (lanes[3] / count) as u8;
-}
-
-fn blur(pixels: &mut [u8], w: usize, h: usize, blur: u8) {
-    let mut sum: wide::u32x4;
-    let mut stack = VecDeque::<wide::u32x4>::new();
-    for y in 0..h {
-        sum = wide::u32x4::ZERO;
-        stack.clear();
-
-        for x in 0..w {
-            let pos = (4 * w * y) + (x * 4);
-            _blur(&mut pixels[pos..pos + 4], &mut sum, &mut stack, blur.into());
-        }
-    }
-
-    for x in 0..w {
-        sum = wide::u32x4::ZERO;
-        stack.clear();
-
-        for y in 0..h {
-            let pos = (4 * w * y) + (x * 4);
-            _blur(&mut pixels[pos..pos + 4], &mut sum, &mut stack, blur.into());
-        }
-    }
 }
 
 impl Card {
@@ -164,4 +117,93 @@ pub fn rounded_rect(cx: &cairo::Context, x: f64, y: f64, w: f64, h: f64, r: f64)
     cx.arc(x + w - r, y + h - r, r, 0.0, PI / 2.0);
     cx.arc(x + r, y + h - r, r, PI / 2.0, PI);
     cx.close_path();
+}
+
+#[inline]
+fn index(w: usize, x: usize, y: usize) -> usize {
+    (4 * w * y) + (x * 4)
+}
+
+#[inline]
+fn pixel(data: &mut [u8], w: usize, x: usize, y: usize) -> &mut [u8] {
+    let i = index(w, x, y);
+    &mut data[i..i + 4]
+}
+
+#[inline]
+fn p_pixel(data: &mut [u8], w: usize, x: usize, y: usize) -> u32x4 {
+    let i = index(w, x, y);
+    let px = &data[i..i + 4];
+    u32x4::new([px[0] as u32, px[1] as u32, px[2] as u32, px[3] as u32])
+}
+
+fn blur(data: &mut [u8], w: usize, h: usize, blur: usize) {
+    let mut sum: u32x4;
+    let mut stack = VecDeque::<u32x4>::new();
+
+    for y in 0..h {
+        sum = u32x4::ZERO;
+
+        stack.clear();
+        for x in 0..blur {
+            let p_px = p_pixel(data, w, x, y);
+            stack.push_back(p_px);
+            sum += p_px;
+        }
+
+        for x in 0..w {
+            if x + blur < w {
+                let p_px = p_pixel(data, w, x + blur, y);
+                stack.push_back(p_px);
+                sum += p_px;
+            }
+
+            if x > blur {
+                if let Some(p_px) = stack.pop_front() {
+                    sum -= p_px;
+                }
+            }
+
+            let px = pixel(data, w, x, y);
+            let lanes = sum.as_array();
+            let count = stack.len() as u32;
+            px[0] = (lanes[0] / count) as u8;
+            px[1] = (lanes[1] / count) as u8;
+            px[2] = (lanes[2] / count) as u8;
+            px[3] = (lanes[3] / count) as u8;
+        }
+    }
+
+    for x in 0..w {
+        sum = u32x4::ZERO;
+
+        stack.clear();
+        for y in 0..blur {
+            let p_px = p_pixel(data, w, x, y);
+            stack.push_back(p_px);
+            sum += p_px;
+        }
+
+        for y in 0..h {
+            if y + blur < h {
+                let p_px = p_pixel(data, w, x, y + blur);
+                stack.push_back(p_px);
+                sum += p_px;
+            }
+
+            if y > blur {
+                if let Some(p_px) = stack.pop_front() {
+                    sum -= p_px;
+                }
+            }
+
+            let px = pixel(data, w, x, y);
+            let lanes = sum.as_array();
+            let count = stack.len() as u32;
+            px[0] = (lanes[0] / count) as u8;
+            px[1] = (lanes[1] / count) as u8;
+            px[2] = (lanes[2] / count) as u8;
+            px[3] = (lanes[3] / count) as u8;
+        }
+    }
 }

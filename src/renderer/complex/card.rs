@@ -9,8 +9,7 @@ pub struct Border {
 /// Represents a drop shadow configuration.
 pub struct Shadow {
     pub offset: (f64, f64),
-    pub blur: u8,
-    pub spread: f64,
+    pub blur: f64,
     pub color: Color,
 }
 
@@ -28,14 +27,14 @@ impl Card {
             let shadow_surface = {
                 let mut off_surface = cairo::ImageSurface::create(
                     cairo::Format::ARgb32,
-                    (w + 2.0 * shadow.spread) as i32,
-                    (h + 2.0 * shadow.spread) as i32,
+                    (w + 2.0 * shadow.blur) as i32,
+                    (h + 2.0 * shadow.blur) as i32,
                 )
                 .expect("cairo offscreen");
 
                 {
                     let off_cx = cairo::Context::new(&off_surface).expect("cairo context");
-                    shapes::rect(&off_cx, shadow.spread, shadow.spread, w, h, self.radius);
+                    shapes::rect(&off_cx, shadow.blur, shadow.blur, w, h, self.radius);
 
                     // Fill the color.
                     let color = &shadow.color;
@@ -60,8 +59,8 @@ impl Card {
             // Apply the shadow to the main canvas.
             cx.set_source_surface(
                 &shadow_surface,
-                x + shadow.offset.0 - shadow.spread,
-                y + shadow.offset.1 - shadow.spread,
+                x + shadow.offset.0 - shadow.blur,
+                y + shadow.offset.1 - shadow.blur,
             )
             .expect("cairo offscreen surface");
 

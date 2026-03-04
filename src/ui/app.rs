@@ -25,7 +25,7 @@ pub struct App {
     shm: Shm,
     pool: SlotPool,
 
-    state: State,
+    pub state: State,
 }
 
 // Required for compositor delegation.
@@ -136,6 +136,12 @@ impl LayerShellHandler for App {
     ) {
         debug!("wl_layer_shell_handler: configure");
 
+        self.state.width = 128 * 3;
+        self.state.height = 128 * 3;
+
+        layer.set_size(self.state.width as u32, self.state.height as u32);
+        layer.commit();
+
         self.state
             .draw(&layer.wl_surface(), &mut self.pool)
             .context("Could not draw frame")
@@ -186,6 +192,7 @@ impl App {
             None,
         );
 
+        // TODO: This size needs to be a sensible size somehow.
         layer_surface.set_size(256, 256);
         layer_surface.set_anchor(Anchor::TOP | Anchor::RIGHT);
         layer_surface.commit();

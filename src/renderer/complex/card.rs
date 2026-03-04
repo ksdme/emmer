@@ -1,4 +1,5 @@
 use crate::renderer::{blur, color::Color, shapes};
+use anyhow::{Context, Result};
 
 /// Represents a border configuration.
 pub struct Border {
@@ -22,7 +23,7 @@ pub struct Card {
 }
 
 impl Card {
-    pub fn draw(&self, cx: cairo::Context, x: f64, y: f64, w: f64, h: f64) {
+    pub fn draw(&self, cx: cairo::Context, x: f64, y: f64, w: f64, h: f64) -> Result<()> {
         if let Some(shadow) = &self.shadow {
             let shadow_surface = {
                 let mut off_surface = cairo::ImageSurface::create(
@@ -30,16 +31,19 @@ impl Card {
                     (w + 2.0 * shadow.blur) as i32,
                     (h + 2.0 * shadow.blur) as i32,
                 )
-                .expect("cairo offscreen");
+                .context("Could not create offscreen surface")?;
 
                 {
-                    let off_cx = cairo::Context::new(&off_surface).expect("cairo context");
+                    let off_cx = cairo::Context::new(&off_surface)
+                        .context("Could not create context on offscreen surface")?;
                     shapes::rect(&off_cx, shadow.blur, shadow.blur, w, h, self.radius);
 
                     // Fill the color.
                     let color = &shadow.color;
                     off_cx.set_source_rgba(color.r, color.g, color.b, color.a);
-                    off_cx.fill().expect("cairo offscreen fill");
+                    off_cx
+                        .fill()
+                        .context("Could not fill shape on offscreen surface")?;
                 }
 
                 // Blur the surface.
@@ -49,7 +53,9 @@ impl Card {
                     let w = off_surface.width() as usize;
                     let h = off_surface.height() as usize;
 
-                    let mut pixels = off_surface.data().expect("cairo offscreen pixels");
+                    let mut pixels = off_surface
+                        .data()
+                        .context("Could not get data of offscreen surface")?;
                     blur::stack_blur(&mut pixels, w, h, shadow.blur as usize);
                 }
 
@@ -62,9 +68,10 @@ impl Card {
                 x + shadow.offset.0 - shadow.blur,
                 y + shadow.offset.1 - shadow.blur,
             )
-            .expect("cairo offscreen surface");
+            .context("Could not set offscreen pattern as main surface source")?;
 
-            cx.paint().expect("cairo pain offscreen");
+            cx.paint()
+                .context("Could not paint offscreen pattern on main surface")?;
         }
 
         // Add base rectangle path.
@@ -73,7 +80,8 @@ impl Card {
         // Add background.
         let bg = &self.bg;
         cx.set_source_rgba(bg.r, bg.g, bg.b, bg.a);
-        cx.fill_preserve().expect("cairo fill");
+        cx.fill_preserve()
+            .context("Could not fill shape on main surface")?;
 
         // Add the border.
         if let Some(border) = &self.border {
@@ -82,7 +90,10 @@ impl Card {
             let color = &border.color;
             cx.set_source_rgba(color.r, color.g, color.b, color.a);
 
-            cx.stroke_preserve().expect("cairo stroke");
+            cx.stroke_preserve()
+                .context("Could not stroke main surface path")?;
         }
+
+        Ok(())
     }
 }

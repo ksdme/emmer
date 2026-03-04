@@ -23,7 +23,7 @@ pub struct Card {
 }
 
 impl Card {
-    pub fn draw(&self, cx: cairo::Context, x: f64, y: f64, w: f64, h: f64) -> Result<()> {
+    pub fn draw(&self, cx: &cairo::Context, x: f64, y: f64, w: f64, h: f64) -> Result<()> {
         if let Some(shadow) = &self.shadow {
             let shadow_surface = {
                 let mut off_surface = cairo::ImageSurface::create(
@@ -93,6 +93,9 @@ impl Card {
             cx.stroke_preserve()
                 .context("Could not stroke main surface path")?;
         }
+
+        // Clear out the path.
+        cx.new_path();
 
         Ok(())
     }

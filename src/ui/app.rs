@@ -130,11 +130,16 @@ impl LayerShellHandler for App {
         &mut self,
         _conn: &Connection,
         _qh: &wayland_client::QueueHandle<Self>,
-        _layer: &smithay_client_toolkit::shell::wlr_layer::LayerSurface,
+        layer: &smithay_client_toolkit::shell::wlr_layer::LayerSurface,
         _configure: smithay_client_toolkit::shell::wlr_layer::LayerSurfaceConfigure,
         _serial: u32,
     ) {
         debug!("wl_layer_shell_handler: configure");
+
+        self.state
+            .draw(&layer.wl_surface(), &mut self.pool)
+            .context("Could not draw frame")
+            .unwrap();
     }
 }
 delegate_layer!(App);
@@ -181,7 +186,7 @@ impl App {
             None,
         );
 
-        layer_surface.set_size(128, 64);
+        layer_surface.set_size(256, 256);
         layer_surface.set_anchor(Anchor::TOP | Anchor::RIGHT);
         layer_surface.commit();
 

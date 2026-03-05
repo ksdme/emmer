@@ -61,8 +61,8 @@ impl State {
     pub fn draw(&self, surface: &WlSurface, pool: &mut SlotPool) -> Result<()> {
         let mut cairo_surface = cairo::ImageSurface::create(
             cairo::Format::ARgb32,
-            self.width as i32,
-            self.height as i32,
+            self.width,
+            self.height,
         )
         .context("Could not create cairo surface")?;
 

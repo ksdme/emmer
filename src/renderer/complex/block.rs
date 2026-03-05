@@ -75,7 +75,7 @@ impl Block {
         }
 
         // Add base rectangle path.
-        shapes::rect(&cx, x, y, w, h, self.radius);
+        shapes::rect(cx, x, y, w, h, self.radius);
 
         // Add background.
         let bg = &self.bg;
@@ -85,7 +85,7 @@ impl Block {
 
         // Add the border.
         if let Some(border) = &self.border {
-            cx.set_line_width(border.width.into());
+            cx.set_line_width(border.width);
 
             let color = &border.color;
             cx.set_source_rgba(color.r, color.g, color.b, color.a);

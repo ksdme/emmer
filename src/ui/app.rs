@@ -152,7 +152,7 @@ impl LayerShellHandler for App {
         layer.commit();
 
         self.state
-            .draw(&layer.wl_surface(), &mut self.slot_pool)
+            .draw(layer.wl_surface(), &mut self.slot_pool)
             .context("Could not draw frame")
             .unwrap();
     }

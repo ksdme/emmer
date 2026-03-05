@@ -41,11 +41,10 @@ pub fn stack_blur(data: &mut [u8], w: usize, h: usize, blur: usize) {
                 sum += p_px;
             }
 
-            if x > blur {
-                if let Some(p_px) = stack.pop_front() {
+            if x > blur
+                && let Some(p_px) = stack.pop_front() {
                     sum -= p_px;
                 }
-            }
 
             let px = pixel(data, w, x, y);
             let lanes = sum.as_array();
@@ -74,11 +73,10 @@ pub fn stack_blur(data: &mut [u8], w: usize, h: usize, blur: usize) {
                 sum += p_px;
             }
 
-            if y > blur {
-                if let Some(p_px) = stack.pop_front() {
+            if y > blur
+                && let Some(p_px) = stack.pop_front() {
                     sum -= p_px;
                 }
-            }
 
             let px = pixel(data, w, x, y);
             let lanes = sum.as_array();

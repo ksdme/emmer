@@ -7,17 +7,17 @@ use smithay_client_toolkit::{
     output::{OutputHandler, OutputState},
     registry::{ProvidesRegistryState, RegistryState},
     registry_handlers,
-    seat::{pointer::PointerHandler, Capability, SeatHandler, SeatState},
+    seat::{Capability, SeatHandler, SeatState, pointer::PointerHandler},
     shell::{
-        wlr_layer::{Anchor, Layer, LayerShell, LayerShellHandler, LayerSurface},
         WaylandSurface,
+        wlr_layer::{Anchor, Layer, LayerShell, LayerShellHandler, LayerSurface},
     },
-    shm::{slot::SlotPool, Shm, ShmHandler},
+    shm::{Shm, ShmHandler, slot::SlotPool},
 };
 use wayland_client::{
+    Connection, EventQueue, Proxy,
     globals::registry_queue_init,
     protocol::{wl_pointer::WlPointer, wl_seat},
-    Connection, EventQueue, Proxy,
 };
 
 use crate::ui::state::State;
@@ -203,15 +203,13 @@ impl SeatHandler for App {
     ) {
         debug!("wl_seat: new_capability ({:?})", capability);
 
-        match capability {
-            Capability::Pointer => {
-                let x = self
-                    .seat_state
+        if capability == Capability::Pointer {
+            self.pointer = Some(
+                self.seat_state
                     .get_pointer(qh, &seat)
                     .context("Could not get_pointer")
-                    .unwrap();
-            }
-            _ => {}
+                    .unwrap(),
+            );
         }
     }
 

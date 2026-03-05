@@ -7,17 +7,17 @@ use smithay_client_toolkit::{
     output::{OutputHandler, OutputState},
     registry::{ProvidesRegistryState, RegistryState},
     registry_handlers,
-    seat::{Capability, SeatHandler, SeatState, pointer::PointerHandler},
+    seat::{pointer::PointerHandler, Capability, SeatHandler, SeatState},
     shell::{
-        WaylandSurface,
         wlr_layer::{Anchor, Layer, LayerShell, LayerShellHandler, LayerSurface},
+        WaylandSurface,
     },
-    shm::{Shm, ShmHandler, slot::SlotPool},
+    shm::{slot::SlotPool, Shm, ShmHandler},
 };
 use wayland_client::{
-    Connection, EventQueue, Proxy,
     globals::registry_queue_init,
     protocol::{wl_pointer::WlPointer, wl_seat},
+    Connection, EventQueue, Proxy,
 };
 
 use crate::ui::state::State;

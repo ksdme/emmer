@@ -15,14 +15,14 @@ pub struct Shadow {
 }
 
 /// Represents a blank rounded card.
-pub struct Card {
+pub struct Block {
     pub bg: Color,
     pub border: Option<Border>,
     pub radius: Option<f64>,
     pub shadow: Option<Shadow>,
 }
 
-impl Card {
+impl Block {
     pub fn draw(&self, cx: &cairo::Context, x: f64, y: f64, w: f64, h: f64) -> Result<()> {
         if let Some(shadow) = &self.shadow {
             let shadow_surface = {

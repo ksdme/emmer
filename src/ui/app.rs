@@ -2,17 +2,23 @@ use anyhow::{Context, Result};
 use log::debug;
 use smithay_client_toolkit::{
     compositor::{CompositorHandler, CompositorState},
-    delegate_compositor, delegate_layer, delegate_output, delegate_registry, delegate_shm,
+    delegate_compositor, delegate_layer, delegate_output, delegate_pointer, delegate_registry,
+    delegate_seat, delegate_shm,
     output::{OutputHandler, OutputState},
     registry::{ProvidesRegistryState, RegistryState},
     registry_handlers,
+    seat::{Capability, SeatHandler, SeatState, pointer::PointerHandler},
     shell::{
         WaylandSurface,
         wlr_layer::{Anchor, Layer, LayerShell, LayerShellHandler, LayerSurface},
     },
     shm::{Shm, ShmHandler, slot::SlotPool},
 };
-use wayland_client::{Connection, EventQueue, Proxy, globals::registry_queue_init};
+use wayland_client::{
+    Connection, EventQueue, Proxy,
+    globals::registry_queue_init,
+    protocol::{wl_pointer::WlPointer, wl_seat},
+};
 
 use crate::ui::state::State;
 
@@ -22,8 +28,11 @@ pub struct App {
     output_state: OutputState,
 
     layer_surface: LayerSurface,
+    seat_state: SeatState,
+    pointer: Option<WlPointer>,
+
     shm: Shm,
-    pool: SlotPool,
+    slot_pool: SlotPool,
 
     pub state: State,
 }
@@ -143,7 +152,7 @@ impl LayerShellHandler for App {
         layer.commit();
 
         self.state
-            .draw(&layer.wl_surface(), &mut self.pool)
+            .draw(&layer.wl_surface(), &mut self.slot_pool)
             .context("Could not draw frame")
             .unwrap();
     }
@@ -157,6 +166,75 @@ impl ShmHandler for App {
     }
 }
 delegate_shm!(App);
+
+impl PointerHandler for App {
+    fn pointer_frame(
+        &mut self,
+        _conn: &Connection,
+        _qh: &wayland_client::QueueHandle<Self>,
+        _pointer: &wayland_client::protocol::wl_pointer::WlPointer,
+        _events: &[smithay_client_toolkit::seat::pointer::PointerEvent],
+    ) {
+        debug!("wl_pointer: frame");
+    }
+}
+delegate_pointer!(App);
+
+impl SeatHandler for App {
+    fn seat_state(&mut self) -> &mut SeatState {
+        &mut self.seat_state
+    }
+
+    fn new_seat(
+        &mut self,
+        _conn: &Connection,
+        _qh: &wayland_client::QueueHandle<Self>,
+        seat: wl_seat::WlSeat,
+    ) {
+        debug!("wl_seat: new_seat ({:?})", seat.id());
+    }
+
+    fn new_capability(
+        &mut self,
+        _conn: &Connection,
+        qh: &wayland_client::QueueHandle<Self>,
+        seat: wl_seat::WlSeat,
+        capability: smithay_client_toolkit::seat::Capability,
+    ) {
+        debug!("wl_seat: new_capability ({:?})", capability);
+
+        match capability {
+            Capability::Pointer => {
+                let x = self
+                    .seat_state
+                    .get_pointer(qh, &seat)
+                    .context("Could not get_pointer")
+                    .unwrap();
+            }
+            _ => {}
+        }
+    }
+
+    fn remove_capability(
+        &mut self,
+        _conn: &Connection,
+        _qh: &wayland_client::QueueHandle<Self>,
+        _seat: wl_seat::WlSeat,
+        capability: smithay_client_toolkit::seat::Capability,
+    ) {
+        debug!("wl_seat: remove_capability ({:?})", capability);
+    }
+
+    fn remove_seat(
+        &mut self,
+        _conn: &Connection,
+        _qh: &wayland_client::QueueHandle<Self>,
+        seat: wl_seat::WlSeat,
+    ) {
+        debug!("wl_seat: remove_seat ({:?})", seat.id());
+    }
+}
+delegate_seat!(App);
 
 // Required to start the queue and keep the globals up to date.
 impl ProvidesRegistryState for App {
@@ -197,8 +275,10 @@ impl App {
         layer_surface.set_anchor(Anchor::TOP | Anchor::RIGHT);
         layer_surface.commit();
 
+        let seat_state = SeatState::new(&globals, &q_handle);
+
         let shm = Shm::bind(&globals, &q_handle).expect("wl_shm");
-        let pool = SlotPool::new(128 * 64, &shm).expect("wl_shm_pool");
+        let slot_pool = SlotPool::new(128 * 64, &shm).expect("wl_shm_pool");
 
         Ok((
             App {
@@ -206,8 +286,11 @@ impl App {
                 output_state,
 
                 layer_surface,
+                seat_state,
+                pointer: None,
+
                 shm,
-                pool,
+                slot_pool,
 
                 state: State::new(),
             },

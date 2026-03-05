@@ -72,7 +72,7 @@ impl State {
             let base_width = self.width as f64 - (2.0 * padding);
             let base_height = 96.0;
             let dedent = 16.0;
-            let peek = 16.0;
+            let peek = 12.0;
 
             item.draw(
                 &cx,

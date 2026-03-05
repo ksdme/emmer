@@ -2,10 +2,20 @@ use anyhow::{Context, Result};
 use smithay_client_toolkit::shm::slot::SlotPool;
 use wayland_client::protocol::{wl_shm::Format, wl_surface::WlSurface};
 
-use crate::renderer::{
-    color::Color,
-    complex::block::{Block, Border, Shadow},
-};
+use crate::renderer::complex::block::Block;
+
+struct RenderState {
+    w: f64,
+    h: f64,
+    x: f64,
+    y: f64,
+    opacity: f64,
+}
+
+struct Card {
+    target_state: Option<RenderState>,
+    current_state: Option<RenderState>,
+}
 
 /// The state of the application and its associated drivers for the
 /// event loop.
@@ -14,7 +24,7 @@ pub struct State {
     pub width: i32,
     pub height: i32,
 
-    done: bool,
+    cards: Vec<Card>,
 }
 
 impl State {
@@ -22,84 +32,28 @@ impl State {
         Self {
             width: 0,
             height: 0,
-
-            done: false,
-        }
-    }
-
-    fn block(&self) -> Block {
-        Block {
-            bg: Color {
-                a: 1.0,
-                r: 1.0,
-                g: 1.0,
-                b: 1.0,
-            },
-            border: Some(Border {
-                color: Color {
-                    a: 1.0,
-                    r: 0.85,
-                    g: 0.85,
-                    b: 0.85,
-                },
-                width: 1.0,
-            }),
-            radius: Some(6.0),
-            shadow: Some(Shadow {
-                blur: 8.0,
-                offset: (0.0, 0.0),
-                color: Color {
-                    a: 0.15,
-                    r: 0.0,
-                    g: 0.0,
-                    b: 0.0,
-                },
-            }),
+            cards: vec![],
         }
     }
 
     pub fn draw(&self, surface: &WlSurface, pool: &mut SlotPool) -> Result<()> {
-        let mut cairo_surface = cairo::ImageSurface::create(
-            cairo::Format::ARgb32,
-            self.width,
-            self.height,
-        )
-        .context("Could not create cairo surface")?;
+        let mut cairo_surface =
+            cairo::ImageSurface::create(cairo::Format::ARgb32, self.width, self.height)
+                .context("Could not create cairo surface")?;
 
+        let padding = 16.0;
         {
             let cx = cairo::Context::new(&cairo_surface)
                 .context("Could not create cairo context on frame surface")?;
 
-            let block = self.block();
-
-            let padding = 32.0;
-            let base_width = self.width as f64 - (2.0 * padding);
-            let base_height = 96.0;
-            let dedent = 16.0;
-            let peek = 12.0;
-
-            block
+            Block::default()
                 .draw(
                     &cx,
-                    padding + 2.0 * dedent,
-                    padding + 2.0 * peek,
-                    base_width - 4.0 * dedent,
-                    base_height,
+                    padding,
+                    padding,
+                    self.width as f64 - (2.0 * padding),
+                    92.0,
                 )
-                .context("Could not draw card")?;
-
-            block
-                .draw(
-                    &cx,
-                    padding + 1.0 * dedent,
-                    padding + 1.0 * peek,
-                    base_width - 2.0 * dedent,
-                    base_height,
-                )
-                .context("Could not draw card")?;
-
-            block
-                .draw(&cx, padding, padding, base_width, base_height)
                 .context("Could not draw card")?;
         }
 

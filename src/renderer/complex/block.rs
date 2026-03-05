@@ -2,12 +2,14 @@ use crate::renderer::{blur, color::Color, shapes};
 use anyhow::{Context, Result};
 
 /// Represents a border configuration.
+#[derive(Debug, Clone)]
 pub struct Border {
     pub color: Color,
     pub width: f64,
 }
 
 /// Represents a drop shadow configuration.
+#[derive(Debug, Clone)]
 pub struct Shadow {
     pub offset: (f64, f64),
     pub blur: f64,
@@ -15,6 +17,7 @@ pub struct Shadow {
 }
 
 /// Represents a blank rounded card.
+#[derive(Debug, Clone)]
 pub struct Block {
     pub bg: Color,
     pub border: Option<Border>,
@@ -98,5 +101,38 @@ impl Block {
         cx.new_path();
 
         Ok(())
+    }
+}
+
+impl Default for Block {
+    fn default() -> Self {
+        Self {
+            bg: Color {
+                a: 1.0,
+                r: 0.2,
+                g: 0.2,
+                b: 0.2,
+            },
+            border: Some(Border {
+                color: Color {
+                    a: 1.0,
+                    r: 0.4,
+                    g: 0.4,
+                    b: 0.4,
+                },
+                width: 2.5,
+            }),
+            shadow: Some(Shadow {
+                blur: 12.0,
+                offset: (0.0, 0.0),
+                color: Color {
+                    a: 0.15,
+                    r: 0.85,
+                    g: 0.85,
+                    b: 0.85,
+                },
+            }),
+            radius: Some(8.0),
+        }
     }
 }

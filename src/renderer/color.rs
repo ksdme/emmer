@@ -1,5 +1,6 @@
 /// Represents a color in cairo as ARGB (0..1).
 /// TODO: These should be single byte values.
+#[derive(Debug, Clone)]
 pub struct Color {
     pub r: f64,
     pub g: f64,

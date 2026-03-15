@@ -1,19 +1,20 @@
-use crate::renderer::{blur, color::Color, shapes};
-use anyhow::{Context, Result};
+use skia_safe::{
+    Canvas, Color, Paint, PaintStyle, PathBuilder, PathDirection, RRect, Rect,
+    utils::shadow_utils::ShadowFlags,
+};
 
 /// Represents a border configuration.
 #[derive(Debug, Clone)]
 pub struct Border {
     pub color: Color,
-    pub width: f64,
+    pub width: f32,
 }
 
-/// Represents a drop shadow configuration.
+/// Represents a shadow on the card.
 #[derive(Debug, Clone)]
-pub struct Shadow {
-    pub offset: (f64, f64),
-    pub blur: f64,
-    pub color: Color,
+pub enum Shadow {
+    XS,
+    SM,
 }
 
 /// Represents a blank rounded card.
@@ -21,118 +22,92 @@ pub struct Shadow {
 pub struct Block {
     pub bg: Color,
     pub border: Option<Border>,
-    pub radius: Option<f64>,
+    pub radius: Option<f32>,
     pub shadow: Option<Shadow>,
-}
-
-impl Block {
-    pub fn draw(&self, cx: &cairo::Context, x: f64, y: f64, w: f64, h: f64) -> Result<()> {
-        if let Some(shadow) = &self.shadow {
-            let shadow_surface = {
-                let mut off_surface = cairo::ImageSurface::create(
-                    cairo::Format::ARgb32,
-                    (w + 2.0 * shadow.blur) as i32,
-                    (h + 2.0 * shadow.blur) as i32,
-                )
-                .context("Could not create offscreen surface")?;
-
-                {
-                    let off_cx = cairo::Context::new(&off_surface)
-                        .context("Could not create context on offscreen surface")?;
-                    shapes::rect(&off_cx, shadow.blur, shadow.blur, w, h, self.radius);
-
-                    // Fill the color.
-                    let color = &shadow.color;
-                    off_cx.set_source_rgba(color.r, color.g, color.b, color.a);
-                    off_cx
-                        .fill()
-                        .context("Could not fill shape on offscreen surface")?;
-                }
-
-                // Blur the surface.
-                {
-                    off_surface.flush();
-
-                    let w = off_surface.width() as usize;
-                    let h = off_surface.height() as usize;
-
-                    let mut pixels = off_surface
-                        .data()
-                        .context("Could not get data of offscreen surface")?;
-                    blur::stack_blur(&mut pixels, w, h, shadow.blur as usize);
-                }
-
-                off_surface
-            };
-
-            // Apply the shadow to the main canvas.
-            cx.set_source_surface(
-                &shadow_surface,
-                x + shadow.offset.0 - shadow.blur,
-                y + shadow.offset.1 - shadow.blur,
-            )
-            .context("Could not set offscreen pattern as main surface source")?;
-
-            cx.paint()
-                .context("Could not paint offscreen pattern on main surface")?;
-        }
-
-        // Add base rectangle path.
-        shapes::rect(cx, x, y, w, h, self.radius);
-
-        // Add background.
-        let bg = &self.bg;
-        cx.set_source_rgba(bg.r, bg.g, bg.b, bg.a);
-        cx.fill_preserve()
-            .context("Could not fill shape on main surface")?;
-
-        // Add the border.
-        if let Some(border) = &self.border {
-            cx.set_line_width(border.width);
-
-            let color = &border.color;
-            cx.set_source_rgba(color.r, color.g, color.b, color.a);
-
-            cx.stroke_preserve()
-                .context("Could not stroke main surface path")?;
-        }
-
-        // Clear out the path.
-        cx.new_path();
-
-        Ok(())
-    }
 }
 
 impl Default for Block {
     fn default() -> Self {
         Self {
-            bg: Color {
-                a: 1.0,
-                r: 0.2,
-                g: 0.2,
-                b: 0.2,
-            },
+            bg: Color::from_rgb(52, 52, 52),
             border: Some(Border {
-                color: Color {
-                    a: 1.0,
-                    r: 0.4,
-                    g: 0.4,
-                    b: 0.4,
-                },
+                color: Color::from_rgb(102, 102, 102),
                 width: 2.5,
             }),
-            shadow: Some(Shadow {
-                blur: 12.0,
-                offset: (0.0, 0.0),
-                color: Color {
-                    a: 0.15,
-                    r: 0.85,
-                    g: 0.85,
-                    b: 0.85,
-                },
-            }),
             radius: Some(8.0),
+            shadow: None,
         }
+    }
+}
+
+pub fn block(canvas: &Canvas, config: &Block, x: f32, y: f32, w: f32, h: f32) {
+    // The shape of the block.
+    let rect = Rect::from_xywh(x, y, w, h);
+    let (path, anti_alias) = match config.radius {
+        Some(r) => (
+            PathBuilder::new()
+                .add_rrect(RRect::new_rect_xy(rect, r, r), PathDirection::CW, None)
+                .detach(),
+            true,
+        ),
+        None => (
+            PathBuilder::new()
+                .add_rect(rect, PathDirection::CW, None)
+                .detach(),
+            false,
+        ),
+    };
+
+    // The shadow.
+    // TODO: These shadow definitions need to be fixed.
+    match &config.shadow {
+        Some(Shadow::XS) => {
+            canvas.draw_shadow(
+                &path,
+                (0., 0., 4.0),
+                (0., -600., 600.),
+                1600.0,
+                Color::from_argb(40, 0, 0, 0),
+                Color::from_argb(20, 0, 0, 0),
+                ShadowFlags::empty(),
+            );
+        }
+        Some(Shadow::SM) => {
+            canvas.draw_shadow(
+                &path,
+                (0., 0., 8.0),
+                (0., -900., 900.),
+                2200.0,
+                Color::from_argb(50, 0, 0, 0),
+                Color::from_argb(30, 0, 0, 0),
+                ShadowFlags::empty(),
+            );
+        }
+        None => {}
+    };
+
+    // The base.
+    let mut fill_paint = Paint::default();
+    canvas.draw_path(
+        &path,
+        &fill_paint
+            .set_style(PaintStyle::Fill)
+            .set_color(config.bg)
+            .set_anti_alias(anti_alias),
+    );
+
+    // The border.
+    if let Some(b) = &config.border {
+        let mut border_paint = Paint::default();
+        canvas.draw_path(
+            &path,
+            &border_paint
+                .set_style(PaintStyle::Stroke)
+                .set_anti_alias(true)
+                .set_stroke(true)
+                .set_stroke_width(b.width)
+                .set_color(b.color)
+                .set_anti_alias(anti_alias),
+        );
     }
 }

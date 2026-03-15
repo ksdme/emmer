@@ -1,21 +1,12 @@
 use anyhow::{Context, Result};
+use skia_safe::{ImageInfo, surfaces};
 use smithay_client_toolkit::shm::slot::SlotPool;
 use wayland_client::protocol::{wl_shm::Format, wl_surface::WlSurface};
 
-use crate::renderer::complex::block::Block;
-
-struct RenderState {
-    w: f64,
-    h: f64,
-    x: f64,
-    y: f64,
-    opacity: f64,
-}
-
-struct Card {
-    target_state: Option<RenderState>,
-    current_state: Option<RenderState>,
-}
+use crate::renderer::complex::{
+    self,
+    block::{Block, Shadow},
+};
 
 /// The state of the application and its associated drivers for the
 /// event loop.
@@ -23,8 +14,6 @@ pub struct State {
     // TODO: For some reason, both cairo and smithay expect i32 for dimensions.
     pub width: i32,
     pub height: i32,
-
-    cards: Vec<Card>,
 }
 
 impl State {
@@ -32,46 +21,47 @@ impl State {
         Self {
             width: 0,
             height: 0,
-            cards: vec![],
         }
     }
 
-    pub fn draw(&self, surface: &WlSurface, pool: &mut SlotPool) -> Result<()> {
-        let mut cairo_surface =
-            cairo::ImageSurface::create(cairo::Format::ARgb32, self.width, self.height)
-                .context("Could not create cairo surface")?;
+    pub fn draw(&self, wl_surface: &WlSurface, pool: &mut SlotPool) -> Result<()> {
+        let mut surface = surfaces::raster_n32_premul((self.width, self.height))
+            .context("Could not create skia surface")?;
 
-        let padding = 16.0;
-        {
-            let cx = cairo::Context::new(&cairo_surface)
-                .context("Could not create cairo context on frame surface")?;
-
-            Block::default()
-                .draw(
-                    &cx,
-                    padding,
-                    padding,
-                    self.width as f64 - (2.0 * padding),
-                    92.0,
-                )
-                .context("Could not draw card")?;
+        let indent = 12.;
+        let peek = 10.;
+        for no in 0..1 {
+            let no = 2 - no;
+            complex::block(
+                surface.canvas(),
+                &Block {
+                    shadow: Some(Shadow::SM),
+                    ..Default::default()
+                },
+                20. + indent * no as f32,
+                20. + peek * no as f32,
+                self.width as f32 - 40. - (no as f32 * 2. * indent),
+                96.,
+            );
         }
-
-        let pixels = cairo_surface
-            .data()
-            .context("Could not get data on frame surface")?;
 
         let (frame_buffer, canvas) = pool
             .create_buffer(self.width, self.height, self.width * 4, Format::Argb8888)
             .context("Could not create buffer on pool")?;
 
-        canvas.copy_from_slice(&pixels);
+        let image_info = ImageInfo::new_n32_premul((surface.width(), surface.height()), None);
+        surface.read_pixels(
+            &image_info,
+            canvas,
+            image_info.bytes_per_pixel() * image_info.width() as usize,
+            (0, 0),
+        );
 
         frame_buffer
-            .attach_to(surface)
+            .attach_to(wl_surface)
             .context("Could not attach buffer")?;
-        surface.damage_buffer(0, 0, self.width, self.height);
-        surface.commit();
+        wl_surface.damage_buffer(0, 0, self.width, self.height);
+        wl_surface.commit();
 
         Ok(())
     }

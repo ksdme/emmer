@@ -3,6 +3,8 @@ use skia_safe::{
     utils::shadow_utils::ShadowFlags,
 };
 
+use crate::renderer::colors;
+
 /// Represents a border configuration.
 #[derive(Debug, Clone)]
 pub struct Border {
@@ -40,7 +42,7 @@ impl Default for Block {
     }
 }
 
-pub fn block(canvas: &Canvas, config: &Block, x: f32, y: f32, w: f32, h: f32) {
+pub fn block(canvas: &Canvas, config: &Block, x: f32, y: f32, w: f32, h: f32, opacity: f32) {
     // The shape of the block.
     let rect = Rect::from_xywh(x, y, w, h);
     let (path, anti_alias) = match config.radius {
@@ -67,8 +69,8 @@ pub fn block(canvas: &Canvas, config: &Block, x: f32, y: f32, w: f32, h: f32) {
                 (0., 0., 4.0),
                 (0., -600., 600.),
                 1600.0,
-                Color::from_argb(40, 0, 0, 0),
-                Color::from_argb(20, 0, 0, 0),
+                colors::scaled_alpha(Color::from_argb(40, 0, 0, 0), opacity),
+                colors::scaled_alpha(Color::from_argb(20, 0, 0, 0), opacity),
                 ShadowFlags::empty(),
             );
         }
@@ -78,8 +80,8 @@ pub fn block(canvas: &Canvas, config: &Block, x: f32, y: f32, w: f32, h: f32) {
                 (0., 0., 8.0),
                 (0., -900., 900.),
                 2200.0,
-                Color::from_argb(50, 0, 0, 0),
-                Color::from_argb(30, 0, 0, 0),
+                colors::scaled_alpha(Color::from_argb(50, 0, 0, 0), opacity),
+                colors::scaled_alpha(Color::from_argb(30, 0, 0, 0), opacity),
                 ShadowFlags::empty(),
             );
         }
@@ -92,7 +94,7 @@ pub fn block(canvas: &Canvas, config: &Block, x: f32, y: f32, w: f32, h: f32) {
         &path,
         &fill_paint
             .set_style(PaintStyle::Fill)
-            .set_color(config.bg)
+            .set_color(colors::scaled_alpha(config.bg, opacity))
             .set_anti_alias(anti_alias),
     );
 
@@ -106,7 +108,7 @@ pub fn block(canvas: &Canvas, config: &Block, x: f32, y: f32, w: f32, h: f32) {
                 .set_anti_alias(true)
                 .set_stroke(true)
                 .set_stroke_width(b.width)
-                .set_color(b.color)
+                .set_color(colors::scaled_alpha(b.color, opacity))
                 .set_anti_alias(anti_alias),
         );
     }

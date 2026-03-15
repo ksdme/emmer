@@ -96,11 +96,15 @@ impl CompositorHandler for App {
     fn frame(
         &mut self,
         _conn: &Connection,
-        _qh: &wayland_client::QueueHandle<Self>,
-        _surface: &wayland_client::protocol::wl_surface::WlSurface,
+        qh: &wayland_client::QueueHandle<Self>,
+        wl_surface: &wayland_client::protocol::wl_surface::WlSurface,
         _time: u32,
     ) {
         debug!("wl_compositor: frame");
+        self.state
+            .draw(qh, wl_surface, &mut self.slot_pool)
+            .context("Could not draw frame")
+            .unwrap();
     }
 
     fn surface_enter(
@@ -138,7 +142,7 @@ impl LayerShellHandler for App {
     fn configure(
         &mut self,
         _conn: &Connection,
-        _qh: &wayland_client::QueueHandle<Self>,
+        qh: &wayland_client::QueueHandle<Self>,
         layer: &smithay_client_toolkit::shell::wlr_layer::LayerSurface,
         _configure: smithay_client_toolkit::shell::wlr_layer::LayerSurfaceConfigure,
         _serial: u32,
@@ -147,12 +151,13 @@ impl LayerShellHandler for App {
 
         self.state.width = 128 * 3;
         self.state.height = 128 * 3;
+        self.state.add_item();
 
         layer.set_size(self.state.width as u32, self.state.height as u32);
         layer.commit();
 
         self.state
-            .draw(layer.wl_surface(), &mut self.slot_pool)
+            .draw(qh, layer.wl_surface(), &mut self.slot_pool)
             .context("Could not draw frame")
             .unwrap();
     }

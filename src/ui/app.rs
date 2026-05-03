@@ -7,7 +7,10 @@ use smithay_client_toolkit::{
     output::{OutputHandler, OutputState},
     registry::{ProvidesRegistryState, RegistryState},
     registry_handlers,
-    seat::{Capability, SeatHandler, SeatState, pointer::PointerHandler},
+    seat::{
+        Capability, SeatHandler, SeatState,
+        pointer::{BTN_RIGHT, PointerHandler},
+    },
     shell::{
         WaylandSurface,
         wlr_layer::{Anchor, Layer, LayerShell, LayerShellHandler, LayerSurface},
@@ -20,7 +23,7 @@ use wayland_client::{
     protocol::{wl_pointer::WlPointer, wl_seat},
 };
 
-use crate::ui::state::State;
+use crate::{config, ui::state::State};
 
 /// The top level Wayland client.
 pub struct App {
@@ -151,7 +154,6 @@ impl LayerShellHandler for App {
 
         self.state.width = 128 * 3;
         self.state.height = 128 * 3;
-        self.state.add_item();
 
         layer.set_size(self.state.width as u32, self.state.height as u32);
         layer.commit();
@@ -176,11 +178,58 @@ impl PointerHandler for App {
     fn pointer_frame(
         &mut self,
         _conn: &Connection,
-        _qh: &wayland_client::QueueHandle<Self>,
+        qh: &wayland_client::QueueHandle<Self>,
         _pointer: &wayland_client::protocol::wl_pointer::WlPointer,
-        _events: &[smithay_client_toolkit::seat::pointer::PointerEvent],
+        events: &[smithay_client_toolkit::seat::pointer::PointerEvent],
     ) {
         debug!("wl_pointer: frame");
+
+        for e in events {
+            match e.kind {
+                smithay_client_toolkit::seat::pointer::PointerEventKind::Release {
+                    time: _,
+                    button,
+                    serial: _,
+                } => {
+                    debug!("wl_pointe: frame click");
+                    if button == BTN_RIGHT {
+                        self.state.stack.dismiss(
+                            &self.state.config,
+                            (e.position.0 as f32, e.position.1 as f32),
+                        );
+                        self.state
+                            .draw(qh, &e.surface, &mut self.slot_pool)
+                            .context("Could not draw on pointer release")
+                            .unwrap();
+                    } else {
+                        self.state.stack.push(&self.state.config);
+                        self.state
+                            .draw(qh, &e.surface, &mut self.slot_pool)
+                            .context("Could not draw on pointer release")
+                            .unwrap();
+                    }
+                }
+                smithay_client_toolkit::seat::pointer::PointerEventKind::Enter { serial: _ } => {
+                    debug!("wl_pointe: frame expanding");
+                    self.state.stack.set_spread(&self.state.config, true);
+                    self.state
+                        .draw(qh, &e.surface, &mut self.slot_pool)
+                        .context("Could not draw on frame expanding")
+                        .unwrap();
+                    break;
+                }
+                smithay_client_toolkit::seat::pointer::PointerEventKind::Leave { serial: _ } => {
+                    debug!("wl_pointe: frame contracting");
+                    self.state.stack.set_spread(&self.state.config, false);
+                    self.state
+                        .draw(qh, &e.surface, &mut self.slot_pool)
+                        .context("Could not draw on frame contracting")
+                        .unwrap();
+                    break;
+                }
+                _ => {}
+            }
+        }
     }
 }
 delegate_pointer!(App);
@@ -295,7 +344,19 @@ impl App {
                 shm,
                 slot_pool,
 
-                state: State::new(),
+                state: State::new(config::Config {
+                    margin: config::Measure { x: 32., y: 32. },
+                    spread: config::Spread {
+                        gap: 8.,
+                        max_count: 8,
+                    },
+                    stack: config::Stack {
+                        peek: 8.,
+                        inset: 8.,
+                        max_count: 3,
+                    },
+                    width: 320.,
+                }),
             },
             event_queue,
         ))

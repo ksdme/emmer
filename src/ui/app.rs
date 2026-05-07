@@ -1,14 +1,16 @@
 use anyhow::{Context, Result};
-use log::debug;
+use log::{debug, trace};
 use smithay_client_toolkit::{
     compositor::{CompositorHandler, CompositorState},
-    delegate_compositor, delegate_layer, delegate_output, delegate_pointer, delegate_registry,
-    delegate_seat, delegate_shm,
+    delegate_compositor, delegate_keyboard, delegate_layer, delegate_output, delegate_pointer,
+    delegate_registry, delegate_seat, delegate_shm,
     output::{OutputHandler, OutputState},
+    reexports::calloop::timer::{self, Timer},
     registry::{ProvidesRegistryState, RegistryState},
     registry_handlers,
     seat::{
         Capability, SeatHandler, SeatState,
+        keyboard::KeyboardHandler,
         pointer::{BTN_RIGHT, PointerHandler},
     },
     shell::{
@@ -103,7 +105,7 @@ impl CompositorHandler for App {
         wl_surface: &wayland_client::protocol::wl_surface::WlSurface,
         _time: u32,
     ) {
-        debug!("wl_compositor: frame");
+        trace!("wl_compositor: frame");
         self.state
             .draw(qh, wl_surface, &mut self.slot_pool)
             .context("Could not draw frame")
@@ -182,7 +184,7 @@ impl PointerHandler for App {
         _pointer: &wayland_client::protocol::wl_pointer::WlPointer,
         events: &[smithay_client_toolkit::seat::pointer::PointerEvent],
     ) {
-        debug!("wl_pointer: frame");
+        trace!("wl_pointer: frame");
 
         for e in events {
             match e.kind {
@@ -191,7 +193,7 @@ impl PointerHandler for App {
                     button,
                     serial: _,
                 } => {
-                    debug!("wl_pointe: frame click");
+                    trace!("wl_pointer: frame click");
                     if button == BTN_RIGHT {
                         self.state.stack.dismiss(
                             &self.state.config,
@@ -210,8 +212,8 @@ impl PointerHandler for App {
                     }
                 }
                 smithay_client_toolkit::seat::pointer::PointerEventKind::Enter { serial: _ } => {
-                    debug!("wl_pointe: frame expanding");
-                    self.state.stack.set_spread(&self.state.config, true);
+                    trace!("wl_pointer: frame expanding");
+                    self.state.stack.set_spread(&self.state.config, false);
                     self.state
                         .draw(qh, &e.surface, &mut self.slot_pool)
                         .context("Could not draw on frame expanding")
@@ -219,7 +221,7 @@ impl PointerHandler for App {
                     break;
                 }
                 smithay_client_toolkit::seat::pointer::PointerEventKind::Leave { serial: _ } => {
-                    debug!("wl_pointe: frame contracting");
+                    trace!("wl_pointer: frame contracting");
                     self.state.stack.set_spread(&self.state.config, false);
                     self.state
                         .draw(qh, &e.surface, &mut self.slot_pool)

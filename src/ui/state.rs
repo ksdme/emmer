@@ -1,5 +1,5 @@
 use anyhow::{Context, Result};
-use log::debug;
+use log::{debug, trace};
 use skia_safe::{ImageInfo, surfaces};
 use smithay_client_toolkit::shm::slot::SlotPool;
 use wayland_client::{
@@ -59,7 +59,7 @@ impl State {
             .context("Could not attach buffer")?;
         wl_surface.damage_buffer(0, 0, self.width, self.height);
         if request_callback {
-            debug!("requesting another frame");
+            trace!("requesting another frame");
             wl_surface.frame(qh, wl_surface.clone());
         }
         wl_surface.commit();

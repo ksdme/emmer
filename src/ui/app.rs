@@ -2,22 +2,26 @@ use anyhow::{Context, Result};
 use log::{debug, trace};
 use smithay_client_toolkit::{
     compositor::{CompositorHandler, CompositorState},
-    delegate_compositor, delegate_layer, delegate_output, delegate_pointer, delegate_registry,
-    delegate_seat, delegate_shm,
+    delegate_compositor, delegate_keyboard, delegate_layer, delegate_output, delegate_pointer,
+    delegate_registry, delegate_seat, delegate_shm,
     output::{OutputHandler, OutputState},
     registry::{ProvidesRegistryState, RegistryState},
     registry_handlers,
-    seat::{Capability, SeatHandler, SeatState, pointer::PointerHandler},
+    seat::{
+        Capability, SeatHandler, SeatState, keyboard::KeyboardHandler, pointer::PointerHandler,
+    },
     shell::{
         WaylandSurface,
-        wlr_layer::{Anchor, Layer, LayerShell, LayerShellHandler, LayerSurface},
+        wlr_layer::{
+            Anchor, KeyboardInteractivity, Layer, LayerShell, LayerShellHandler, LayerSurface,
+        },
     },
     shm::{Shm, ShmHandler, slot::SlotPool},
 };
 use wayland_client::{
     Connection, EventQueue, Proxy,
     globals::registry_queue_init,
-    protocol::{wl_pointer::WlPointer, wl_seat},
+    protocol::{wl_keyboard::WlKeyboard, wl_pointer::WlPointer, wl_seat},
 };
 
 use crate::{config, engine::items::LayoutMode, ui::state::State};
@@ -29,6 +33,8 @@ pub struct App {
 
     layer_surface: LayerSurface,
     seat_state: SeatState,
+
+    keyboard: Option<WlKeyboard>,
     pointer: Option<WlPointer>,
 
     shm: Shm,
@@ -152,7 +158,12 @@ impl LayerShellHandler for App {
         self.state.width = 128 * 3;
         self.state.height = 128 * 3;
 
+        // Setup size.
         layer.set_size(self.state.width as u32, self.state.height as u32);
+        layer.commit();
+
+        // Setup keyboard.
+        layer.set_keyboard_interactivity(KeyboardInteractivity::OnDemand);
         layer.commit();
 
         self.state
@@ -189,11 +200,6 @@ impl PointerHandler for App {
                     serial: _,
                 } => {
                     trace!("wl_pointer: frame click");
-                    self.state.stack.push(&self.state.config);
-                    self.state
-                        .draw(qh, &e.surface, &mut self.slot_pool)
-                        .context("Could not draw on pointer release")
-                        .unwrap();
                 }
                 smithay_client_toolkit::seat::pointer::PointerEventKind::Enter { serial: _ } => {
                     trace!("wl_pointer: frame expanding");
@@ -224,6 +230,88 @@ impl PointerHandler for App {
 }
 delegate_pointer!(App);
 
+impl KeyboardHandler for App {
+    fn enter(
+        &mut self,
+        _conn: &Connection,
+        _qh: &wayland_client::QueueHandle<Self>,
+        _keyboard: &wayland_client::protocol::wl_keyboard::WlKeyboard,
+        _surface: &wayland_client::protocol::wl_surface::WlSurface,
+        _serial: u32,
+        _raw: &[u32],
+        _keysyms: &[smithay_client_toolkit::seat::keyboard::Keysym],
+    ) {
+        trace!("wl_keyboard: enter");
+    }
+
+    fn leave(
+        &mut self,
+        _conn: &Connection,
+        _qh: &wayland_client::QueueHandle<Self>,
+        _keyboard: &wayland_client::protocol::wl_keyboard::WlKeyboard,
+        _surface: &wayland_client::protocol::wl_surface::WlSurface,
+        _serial: u32,
+    ) {
+        trace!("wl_keyboard: leave");
+    }
+
+    fn press_key(
+        &mut self,
+        _conn: &Connection,
+        _qh: &wayland_client::QueueHandle<Self>,
+        _keyboard: &wayland_client::protocol::wl_keyboard::WlKeyboard,
+        _serial: u32,
+        _event: smithay_client_toolkit::seat::keyboard::KeyEvent,
+    ) {
+        trace!("wl_keyboard: press_key");
+    }
+
+    fn repeat_key(
+        &mut self,
+        _conn: &Connection,
+        _qh: &wayland_client::QueueHandle<Self>,
+        _keyboard: &wayland_client::protocol::wl_keyboard::WlKeyboard,
+        _serial: u32,
+        _event: smithay_client_toolkit::seat::keyboard::KeyEvent,
+    ) {
+        trace!("wl_keyboard: repeat_key");
+    }
+
+    fn release_key(
+        &mut self,
+        _conn: &Connection,
+        qh: &wayland_client::QueueHandle<Self>,
+        _keyboard: &wayland_client::protocol::wl_keyboard::WlKeyboard,
+        _serial: u32,
+        e: smithay_client_toolkit::seat::keyboard::KeyEvent,
+    ) {
+        trace!("wl_keyboard: release_key");
+
+        let surface = self.layer_surface.wl_surface();
+        if e.keysym.key_char() == Some('a') {
+            self.state.stack.push(&self.state.config);
+            self.state
+                .draw(qh, &surface, &mut self.slot_pool)
+                .context("Could not draw on push")
+                .unwrap();
+        }
+    }
+
+    fn update_modifiers(
+        &mut self,
+        _conn: &Connection,
+        _qh: &wayland_client::QueueHandle<Self>,
+        _keyboard: &wayland_client::protocol::wl_keyboard::WlKeyboard,
+        _serial: u32,
+        _modifiers: smithay_client_toolkit::seat::keyboard::Modifiers,
+        _raw_modifiers: smithay_client_toolkit::seat::keyboard::RawModifiers,
+        _layout: u32,
+    ) {
+        trace!("wl_keyboard: update_modifiers");
+    }
+}
+delegate_keyboard!(App);
+
 impl SeatHandler for App {
     fn seat_state(&mut self) -> &mut SeatState {
         &mut self.seat_state
@@ -247,13 +335,24 @@ impl SeatHandler for App {
     ) {
         debug!("wl_seat: new_capability ({:?})", capability);
 
-        if capability == Capability::Pointer {
-            self.pointer = Some(
-                self.seat_state
-                    .get_pointer(qh, &seat)
-                    .context("Could not get_pointer")
-                    .unwrap(),
-            );
+        match capability {
+            Capability::Pointer => {
+                self.pointer = Some(
+                    self.seat_state
+                        .get_pointer(qh, &seat)
+                        .context("Could not get_pointer")
+                        .unwrap(),
+                );
+            }
+            Capability::Keyboard => {
+                self.keyboard = Some(
+                    self.seat_state
+                        .get_keyboard(qh, &seat, None)
+                        .context("Could not get_keyboard")
+                        .unwrap(),
+                );
+            }
+            _ => {}
         }
     }
 
@@ -317,6 +416,8 @@ impl App {
         layer_surface.set_anchor(Anchor::TOP | Anchor::RIGHT);
         layer_surface.commit();
 
+        surface.commit();
+
         let seat_state = SeatState::new(&globals, &q_handle);
 
         let shm = Shm::bind(&globals, &q_handle).expect("wl_shm");
@@ -329,6 +430,8 @@ impl App {
 
                 layer_surface,
                 seat_state,
+
+                keyboard: None,
                 pointer: None,
 
                 shm,

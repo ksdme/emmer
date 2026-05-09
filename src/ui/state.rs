@@ -1,5 +1,5 @@
 use anyhow::{Context, Result};
-use log::{debug, trace};
+use log::trace;
 use skia_safe::{ImageInfo, surfaces};
 use smithay_client_toolkit::shm::slot::SlotPool;
 use wayland_client::{
@@ -41,7 +41,6 @@ impl State {
             .context("Could not create skia surface")?;
 
         let request_callback = self.stack.draw(surface.canvas());
-
         let (frame_buffer, canvas) = pool
             .create_buffer(self.width, self.height, self.width * 4, Format::Argb8888)
             .context("Could not create buffer on pool")?;

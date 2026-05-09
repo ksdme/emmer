@@ -7,17 +7,17 @@ pub struct Measure {
 }
 
 pub struct Stack {
-    /// The width by which each stacked card will be smaller than the
-    /// previous card.
-    pub inset: f32,
-
     /// The height by which each stacked card will be peeking outside the
     /// the previous card.
     pub peek: f32,
 
+    /// The width by which each stacked card will be smaller than the
+    /// previous card.
+    pub inset: f32,
+
     /// The maximum number of notification cards that will be visible when the
     /// cards are stacked.
-    pub max_count: u8,
+    pub max_count: usize,
 }
 
 pub struct Spread {
@@ -26,7 +26,7 @@ pub struct Spread {
 
     /// The maximum number of notification cards that will be visible when the
     /// cards are spread out of the stack.
-    pub max_count: u8,
+    pub max_count: usize,
 }
 
 /// Represents the global application configuration.

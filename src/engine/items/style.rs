@@ -14,9 +14,15 @@ pub struct Style {
     pub opacity: f32,
 }
 
+impl Style {
+    pub fn visible(&self) -> bool {
+        self.opacity <= 0.
+    }
+}
+
 /// Represents the parameters of a transition of a Style into another.
 pub struct Transition {
-    started_at: Instant,
+    start_at: Instant,
     duration: Duration,
     target: Style,
 }
@@ -33,9 +39,9 @@ macro_rules! interp {
 
 impl Transition {
     /// Returns a new transition to target_state with the clock starting now.
-    pub fn new(duration: Duration, target: Style) -> Self {
+    pub fn new(duration: Duration, target: Style, delay: Option<Duration>) -> Self {
         Self {
-            started_at: Instant::now(),
+            start_at: Instant::now() + delay.unwrap_or_default(),
             duration,
             target,
         }
@@ -43,12 +49,10 @@ impl Transition {
 
     /// Interpolates the transition to an Instant.
     pub fn interpolate(&self, current: &Style, now: Option<Instant>) -> (Style, bool) {
-        let duration_since = now
-            .unwrap_or(Instant::now())
-            .duration_since(self.started_at);
-
         // The progress of the transition as [0, 1].
-        let progress = duration_since
+        let progress = now
+            .unwrap_or(Instant::now())
+            .duration_since(self.start_at)
             .as_secs_f32()
             .div(self.duration.as_secs_f32())
             .clamp(0., 1.);

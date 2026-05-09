@@ -2,17 +2,12 @@ use anyhow::{Context, Result};
 use log::{debug, trace};
 use smithay_client_toolkit::{
     compositor::{CompositorHandler, CompositorState},
-    delegate_compositor, delegate_keyboard, delegate_layer, delegate_output, delegate_pointer,
-    delegate_registry, delegate_seat, delegate_shm,
+    delegate_compositor, delegate_layer, delegate_output, delegate_pointer, delegate_registry,
+    delegate_seat, delegate_shm,
     output::{OutputHandler, OutputState},
-    reexports::calloop::timer::{self, Timer},
     registry::{ProvidesRegistryState, RegistryState},
     registry_handlers,
-    seat::{
-        Capability, SeatHandler, SeatState,
-        keyboard::KeyboardHandler,
-        pointer::{BTN_RIGHT, PointerHandler},
-    },
+    seat::{Capability, SeatHandler, SeatState, pointer::PointerHandler},
     shell::{
         WaylandSurface,
         wlr_layer::{Anchor, Layer, LayerShell, LayerShellHandler, LayerSurface},
@@ -25,7 +20,7 @@ use wayland_client::{
     protocol::{wl_pointer::WlPointer, wl_seat},
 };
 
-use crate::{config, ui::state::State};
+use crate::{config, engine::items::LayoutMode, ui::state::State};
 
 /// The top level Wayland client.
 pub struct App {
@@ -190,30 +185,21 @@ impl PointerHandler for App {
             match e.kind {
                 smithay_client_toolkit::seat::pointer::PointerEventKind::Release {
                     time: _,
-                    button,
+                    button: _,
                     serial: _,
                 } => {
                     trace!("wl_pointer: frame click");
-                    if button == BTN_RIGHT {
-                        self.state.stack.dismiss(
-                            &self.state.config,
-                            (e.position.0 as f32, e.position.1 as f32),
-                        );
-                        self.state
-                            .draw(qh, &e.surface, &mut self.slot_pool)
-                            .context("Could not draw on pointer release")
-                            .unwrap();
-                    } else {
-                        self.state.stack.push(&self.state.config);
-                        self.state
-                            .draw(qh, &e.surface, &mut self.slot_pool)
-                            .context("Could not draw on pointer release")
-                            .unwrap();
-                    }
+                    self.state.stack.push(&self.state.config);
+                    self.state
+                        .draw(qh, &e.surface, &mut self.slot_pool)
+                        .context("Could not draw on pointer release")
+                        .unwrap();
                 }
                 smithay_client_toolkit::seat::pointer::PointerEventKind::Enter { serial: _ } => {
                     trace!("wl_pointer: frame expanding");
-                    self.state.stack.set_spread(&self.state.config, false);
+                    self.state
+                        .stack
+                        .set_mode(&self.state.config, LayoutMode::Spread);
                     self.state
                         .draw(qh, &e.surface, &mut self.slot_pool)
                         .context("Could not draw on frame expanding")
@@ -222,7 +208,9 @@ impl PointerHandler for App {
                 }
                 smithay_client_toolkit::seat::pointer::PointerEventKind::Leave { serial: _ } => {
                     trace!("wl_pointer: frame contracting");
-                    self.state.stack.set_spread(&self.state.config, false);
+                    self.state
+                        .stack
+                        .set_mode(&self.state.config, LayoutMode::Stacked);
                     self.state
                         .draw(qh, &e.surface, &mut self.slot_pool)
                         .context("Could not draw on frame contracting")
@@ -353,7 +341,7 @@ impl App {
                         max_count: 8,
                     },
                     stack: config::Stack {
-                        peek: 8.,
+                        peek: 12.,
                         inset: 8.,
                         max_count: 3,
                     },

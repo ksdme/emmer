@@ -50,7 +50,7 @@ impl Stack {
                 x: config.margin.x,
                 y: -config.margin.y,
                 w: config.width,
-                h: 64.,
+                h: rand::random_range(64.0..100.0),
                 opacity: 1.,
             },
         );

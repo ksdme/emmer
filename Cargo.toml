@@ -7,6 +7,7 @@ edition = "2024"
 anyhow = { version = "1.0.102", features = ["backtrace"] }
 env_logger = "0.11.9"
 log = "0.4.29"
+rand = "0.10.1"
 skia-safe = { version = "0.93.1", features = ["textlayout", "binary-cache", "embed-icudtl"] }
 smithay-client-toolkit = "0.20.0"
 wayland-client = "0.31.12"

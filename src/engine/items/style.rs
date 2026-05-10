@@ -16,7 +16,7 @@ pub struct Style {
 
 impl Style {
     pub fn visible(&self) -> bool {
-        self.opacity <= 0.
+        self.opacity > 0.
     }
 }
 

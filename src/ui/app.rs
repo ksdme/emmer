@@ -55,7 +55,7 @@ impl OutputHandler for App {
         _qh: &wayland_client::QueueHandle<Self>,
         output: wayland_client::protocol::wl_output::WlOutput,
     ) {
-        debug!("wl_output: new_output ({:?})", output.id());
+        debug!(target: "wl_output", "new_output ({:?})", output.id());
     }
 
     fn update_output(
@@ -64,7 +64,7 @@ impl OutputHandler for App {
         _qh: &wayland_client::QueueHandle<Self>,
         _output: wayland_client::protocol::wl_output::WlOutput,
     ) {
-        debug!("wl_output: update_output");
+        debug!(target: "wl_output", "update_output");
     }
 
     fn output_destroyed(
@@ -73,7 +73,7 @@ impl OutputHandler for App {
         _qh: &wayland_client::QueueHandle<Self>,
         _output: wayland_client::protocol::wl_output::WlOutput,
     ) {
-        debug!("wl_output: output_destroyed");
+        debug!(target: "wl_output", "output_destroyed");
     }
 }
 delegate_output!(App);
@@ -86,7 +86,7 @@ impl CompositorHandler for App {
         _surface: &wayland_client::protocol::wl_surface::WlSurface,
         _new_factor: i32,
     ) {
-        debug!("wl_compositor: scale_factor_changed");
+        debug!(target: "wl_compositor", "scale_factor_changed");
     }
 
     fn transform_changed(
@@ -96,7 +96,7 @@ impl CompositorHandler for App {
         _surface: &wayland_client::protocol::wl_surface::WlSurface,
         _new_transform: wayland_client::protocol::wl_output::Transform,
     ) {
-        debug!("wl_compositor: transform_changed");
+        debug!(target: "wl_compositor", "transform_changed");
     }
 
     fn frame(
@@ -106,7 +106,7 @@ impl CompositorHandler for App {
         wl_surface: &wayland_client::protocol::wl_surface::WlSurface,
         _time: u32,
     ) {
-        trace!("wl_compositor: frame");
+        trace!(target: "wl_compositor", "frame");
         self.state
             .draw(qh, wl_surface, &mut self.slot_pool)
             .context("Could not draw frame")
@@ -120,7 +120,7 @@ impl CompositorHandler for App {
         _surface: &wayland_client::protocol::wl_surface::WlSurface,
         _output: &wayland_client::protocol::wl_output::WlOutput,
     ) {
-        debug!("wl_compositor: surface_enter");
+        debug!(target: "wl_compositor", "surface_enter");
     }
 
     fn surface_leave(
@@ -130,7 +130,7 @@ impl CompositorHandler for App {
         _surface: &wayland_client::protocol::wl_surface::WlSurface,
         _output: &wayland_client::protocol::wl_output::WlOutput,
     ) {
-        debug!("wl_compositor: surface_leave");
+        debug!(target: "wl_compositor", "surface_leave");
     }
 }
 delegate_compositor!(App);
@@ -142,7 +142,7 @@ impl LayerShellHandler for App {
         _qh: &wayland_client::QueueHandle<Self>,
         _layer: &smithay_client_toolkit::shell::wlr_layer::LayerSurface,
     ) {
-        debug!("wl_layer_shell_handler: closed");
+        debug!(target: "wl_layer_shell_handler", "closed");
     }
 
     fn configure(
@@ -153,7 +153,7 @@ impl LayerShellHandler for App {
         _configure: smithay_client_toolkit::shell::wlr_layer::LayerSurfaceConfigure,
         _serial: u32,
     ) {
-        debug!("wl_layer_shell_handler: configure");
+        debug!(target: "wl_layer_shell_handler", "configure");
 
         self.state.width = 128 * 3;
         self.state.height = 128 * 3;
@@ -176,7 +176,7 @@ delegate_layer!(App);
 
 impl ShmHandler for App {
     fn shm_state(&mut self) -> &mut Shm {
-        debug!("wl_shm: shm_state");
+        debug!(target: "wl_shm", "shm_state");
         &mut self.shm
     }
 }
@@ -190,7 +190,7 @@ impl PointerHandler for App {
         _pointer: &wayland_client::protocol::wl_pointer::WlPointer,
         events: &[smithay_client_toolkit::seat::pointer::PointerEvent],
     ) {
-        trace!("wl_pointer: frame");
+        trace!(target: "wl_pointer", "frame");
 
         for e in events {
             match e.kind {
@@ -241,7 +241,7 @@ impl KeyboardHandler for App {
         _raw: &[u32],
         _keysyms: &[smithay_client_toolkit::seat::keyboard::Keysym],
     ) {
-        trace!("wl_keyboard: enter");
+        trace!(target: "wl_keyboard", "enter");
     }
 
     fn leave(
@@ -252,7 +252,7 @@ impl KeyboardHandler for App {
         _surface: &wayland_client::protocol::wl_surface::WlSurface,
         _serial: u32,
     ) {
-        trace!("wl_keyboard: leave");
+        trace!(target: "wl_keyboard", "leave");
     }
 
     fn press_key(
@@ -263,7 +263,7 @@ impl KeyboardHandler for App {
         _serial: u32,
         _event: smithay_client_toolkit::seat::keyboard::KeyEvent,
     ) {
-        trace!("wl_keyboard: press_key");
+        trace!(target: "wl_keyboard", "press_key");
     }
 
     fn repeat_key(
@@ -274,7 +274,7 @@ impl KeyboardHandler for App {
         _serial: u32,
         _event: smithay_client_toolkit::seat::keyboard::KeyEvent,
     ) {
-        trace!("wl_keyboard: repeat_key");
+        trace!(target: "wl_keyboard", "repeat_key");
     }
 
     fn release_key(
@@ -285,7 +285,7 @@ impl KeyboardHandler for App {
         _serial: u32,
         e: smithay_client_toolkit::seat::keyboard::KeyEvent,
     ) {
-        trace!("wl_keyboard: release_key");
+        trace!(target: "wl_keyboard", "release_key");
 
         let surface = self.layer_surface.wl_surface();
         if e.keysym.key_char() == Some('a') {
@@ -307,7 +307,7 @@ impl KeyboardHandler for App {
         _raw_modifiers: smithay_client_toolkit::seat::keyboard::RawModifiers,
         _layout: u32,
     ) {
-        trace!("wl_keyboard: update_modifiers");
+        trace!(target: "wl_keyboard", "update_modifiers");
     }
 }
 delegate_keyboard!(App);
@@ -323,7 +323,7 @@ impl SeatHandler for App {
         _qh: &wayland_client::QueueHandle<Self>,
         seat: wl_seat::WlSeat,
     ) {
-        debug!("wl_seat: new_seat ({:?})", seat.id());
+        debug!(target: "wl_seat", "new_seat ({:?})", seat.id());
     }
 
     fn new_capability(
@@ -333,7 +333,7 @@ impl SeatHandler for App {
         seat: wl_seat::WlSeat,
         capability: smithay_client_toolkit::seat::Capability,
     ) {
-        debug!("wl_seat: new_capability ({:?})", capability);
+        debug!(target: "wl_seat", "new_capability ({:?})", capability);
 
         match capability {
             Capability::Pointer => {
@@ -363,7 +363,7 @@ impl SeatHandler for App {
         _seat: wl_seat::WlSeat,
         capability: smithay_client_toolkit::seat::Capability,
     ) {
-        debug!("wl_seat: remove_capability ({:?})", capability);
+        debug!(target: "wl_seat", "remove_capability ({:?})", capability);
     }
 
     fn remove_seat(
@@ -372,7 +372,7 @@ impl SeatHandler for App {
         _qh: &wayland_client::QueueHandle<Self>,
         seat: wl_seat::WlSeat,
     ) {
-        debug!("wl_seat: remove_seat ({:?})", seat.id());
+        debug!(target: "wl_seat", "remove_seat ({:?})", seat.id());
     }
 }
 delegate_seat!(App);

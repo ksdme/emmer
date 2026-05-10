@@ -1,5 +1,7 @@
 use std::time::Duration;
 
+use log::{debug, info};
+
 use crate::{
     config,
     engine::items::{
@@ -39,6 +41,8 @@ impl Stack {
 
     // TODO: Lock the items.
     pub fn push(&mut self, config: &config::Config) {
+        debug!(target: "stack", "pushing blank item");
+
         // Push a new item on the stack.
         let item = Item::new(Style {
             x: config.margin.x,
@@ -70,8 +74,9 @@ impl Stack {
     }
 
     fn layout_spread(&mut self, config: &config::Config) {
-        let mut top_y = config.margin.y;
+        debug!(target: "stack", "re-layout in spread mode");
 
+        let mut top_y = config.margin.y;
         for (no, item) in self.items.iter_mut().enumerate() {
             // Show the first config.spread.max_count items.
             if no <= config.spread.max_count {
@@ -111,8 +116,9 @@ impl Stack {
     }
 
     pub fn layout_stacked(&mut self, config: &config::Config) {
-        let mut top_y = config.margin.y;
+        info!(target: "stack", "re-layout in stack mode");
 
+        let mut top_y = config.margin.y;
         for (no, item) in self.items.iter_mut().enumerate() {
             // Renders the first item as a regular block.
             if no == 0 {

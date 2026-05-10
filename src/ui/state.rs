@@ -58,7 +58,7 @@ impl State {
             .context("Could not attach buffer")?;
         wl_surface.damage_buffer(0, 0, self.width, self.height);
         if request_callback {
-            trace!("requesting another frame");
+            trace!(target: "draw", "requesting another frame");
             wl_surface.frame(qh, wl_surface.clone());
         }
         wl_surface.commit();

@@ -135,7 +135,7 @@ impl Stack {
                     None,
                     Transition::new(Duration::from_millis(250), target, None),
                 );
-            } else if no <= config.stack.max_count {
+            } else if no < config.stack.max_count {
                 // Render the stack entries.
                 let no = no as f32;
 

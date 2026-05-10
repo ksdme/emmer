@@ -6,7 +6,15 @@ use crate::{
     },
 };
 
+#[derive(PartialEq)]
+pub enum State {
+    Alive,
+    Dismissed,
+}
+
 pub struct Item {
+    pub state: State,
+
     // The height of each item is based on its contents. So, we need to
     // calculate and cache it. This might be >= style.h when the card is
     // transitioning.
@@ -19,7 +27,9 @@ pub struct Item {
 impl Item {
     pub fn new(style: Style) -> Self {
         Self {
-            h: 64.,
+            state: State::Alive,
+
+            h: style.h,
 
             style,
             transition: None,

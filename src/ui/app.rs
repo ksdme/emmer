@@ -8,7 +8,9 @@ use smithay_client_toolkit::{
     registry::{ProvidesRegistryState, RegistryState},
     registry_handlers,
     seat::{
-        Capability, SeatHandler, SeatState, keyboard::KeyboardHandler, pointer::PointerHandler,
+        Capability, SeatHandler, SeatState,
+        keyboard::KeyboardHandler,
+        pointer::{BTN_RIGHT, PointerHandler},
     },
     shell::{
         WaylandSurface,
@@ -196,10 +198,21 @@ impl PointerHandler for App {
             match e.kind {
                 smithay_client_toolkit::seat::pointer::PointerEventKind::Release {
                     time: _,
-                    button: _,
+                    button,
                     serial: _,
                 } => {
                     trace!("wl_pointer: frame click");
+                    if button == BTN_RIGHT {
+                        self.state.stack.dismiss(
+                            &self.state.config,
+                            (e.position.0 as f32, e.position.1 as f32),
+                        );
+                        self.state
+                            .draw(qh, &e.surface, &mut self.slot_pool)
+                            .context("Could not draw on dismiss")
+                            .unwrap();
+                        break;
+                    }
                 }
                 smithay_client_toolkit::seat::pointer::PointerEventKind::Enter { serial: _ } => {
                     trace!("wl_pointer: frame expanding");

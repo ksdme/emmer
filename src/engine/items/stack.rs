@@ -5,7 +5,7 @@ use log::{debug, info};
 use crate::{
     config,
     engine::items::{
-        item::Item,
+        item::{Item, State},
         style::{Style, Transition},
     },
 };
@@ -36,6 +36,8 @@ impl Stack {
 
     pub fn set_mode(&mut self, config: &config::Config, mode: LayoutMode) {
         self.layout_mode = mode;
+
+        // Update layout.
         self.layout(config);
     }
 
@@ -53,23 +55,53 @@ impl Stack {
         });
         self.items.insert(0, item);
 
-        // Re-layout the items.
+        // Update layout.
+        self.layout(config);
+    }
+
+    pub fn dismiss(&mut self, config: &config::Config, at: (f32, f32)) {
+        debug!(target: "stack", "dismissing item");
+
+        let item = self.items.iter_mut().find(|item| match item.hitbox() {
+            Some((x1, y1, x2, y2)) => {
+                let (x, y) = at;
+                x >= x1 && y >= y1 && x <= x2 && y <= y2
+            }
+            None => false,
+        });
+
+        if let Some(item) = item {
+            item.state = State::Dismissed;
+        }
+
+        // Update layout.
         self.layout(config);
     }
 
     pub fn draw(&mut self, canvas: &skia_safe::Canvas) -> bool {
-        let mut settled = false;
-        for item in self.items.iter_mut().rev() {
-            settled |= !item.draw(canvas);
+        let mut pending = false;
+
+        for no in (0..self.items.len()).rev() {
+            if let Some(item) = self.items.get_mut(no) {
+                let settled = item.draw(canvas);
+
+                // If the item was marked as dismissed, and the transition
+                // around it has settled, then, remove it from memory.
+                if settled && item.state == State::Dismissed {
+                    self.items.remove(no);
+                }
+
+                pending |= !settled;
+            }
         }
 
-        settled
+        pending
     }
 
     pub fn layout(&mut self, config: &config::Config) {
         match self.layout_mode {
             LayoutMode::Spread => self.layout_spread(config),
-            LayoutMode::Stacked => self.layout_stacked(config),
+            LayoutMode::Stacked => self.layout_stack(config),
         }
     }
 
@@ -85,9 +117,15 @@ impl Stack {
                     y: top_y,
                     w: config.width,
                     h: item.h,
-                    opacity: 1.,
+                    opacity: match item.state {
+                        State::Alive => 1.,
+                        State::Dismissed => 0.,
+                    },
                 };
-                top_y = target.y + target.h + config.spread.gap;
+
+                if item.state == State::Alive {
+                    top_y = target.y + target.h + config.spread.gap;
+                }
 
                 item.set_style(
                     None,
@@ -115,7 +153,7 @@ impl Stack {
         }
     }
 
-    pub fn layout_stacked(&mut self, config: &config::Config) {
+    pub fn layout_stack(&mut self, config: &config::Config) {
         info!(target: "stack", "re-layout in stack mode");
 
         let mut top_y = config.margin.y;
@@ -127,9 +165,15 @@ impl Stack {
                     y: top_y,
                     w: config.width,
                     h: item.h,
-                    opacity: 1.,
+                    opacity: match item.state {
+                        State::Alive => 1.,
+                        State::Dismissed => 0.,
+                    },
                 };
-                top_y = target.y + target.h;
+
+                if item.state == State::Alive {
+                    top_y = target.y + target.h;
+                }
 
                 item.set_style(
                     None,
@@ -144,7 +188,10 @@ impl Stack {
                     y: top_y - config.stack.peek,
                     w: config.width - 2. * no * config.stack.inset,
                     h: 2. * config.stack.peek,
-                    opacity: 1.,
+                    opacity: match item.state {
+                        State::Alive => 1.,
+                        State::Dismissed => 0.,
+                    },
                 };
                 top_y = target.y + target.h;
 

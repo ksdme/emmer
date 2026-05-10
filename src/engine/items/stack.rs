@@ -36,32 +36,34 @@ impl Stack {
 
     pub fn set_mode(&mut self, config: &config::Config, mode: LayoutMode) {
         self.layout_mode = mode;
+        info!(target: "stack", "set_mode: {:?}", &self.layout_mode);
 
-        // Update layout.
         self.layout(config);
     }
 
     // TODO: Lock the items.
+    /// Push a new item on the stack.
     pub fn push(&mut self, config: &config::Config) {
-        debug!(target: "stack", "pushing blank item");
+        let item = Item::new(
+            self.items.len(),
+            Style {
+                x: config.margin.x,
+                y: -config.margin.y,
+                w: config.width,
+                h: 64.,
+                opacity: 1.,
+            },
+        );
 
-        // Push a new item on the stack.
-        let item = Item::new(Style {
-            x: config.margin.x,
-            y: -config.margin.y,
-            w: config.width,
-            h: 64.,
-            opacity: 1.,
-        });
+        info!(target: "stack", "push: {:?}", &item.id);
         self.items.insert(0, item);
 
-        // Update layout.
         self.layout(config);
     }
 
+    // TODO: Lock the items.
+    /// Remove an item from the stack.
     pub fn dismiss(&mut self, config: &config::Config, at: (f32, f32)) {
-        debug!(target: "stack", "dismissing item");
-
         let item = self.items.iter_mut().find(|item| match item.hitbox() {
             Some((x1, y1, x2, y2)) => {
                 let (x, y) = at;
@@ -71,10 +73,12 @@ impl Stack {
         });
 
         if let Some(item) = item {
+            info!(target: "stack", "dismissing: {:?}", &item.id);
             item.state = State::Dismissed;
+        } else {
+            info!(target: "stack", "dismiss item not resolved");
         }
 
-        // Update layout.
         self.layout(config);
     }
 
@@ -108,8 +112,9 @@ impl Stack {
     fn layout_spread(&mut self, config: &config::Config) {
         debug!(target: "stack", "re-layout in spread mode");
 
+        let mut no = 0;
         let mut top_y = config.margin.y;
-        for (no, item) in self.items.iter_mut().enumerate() {
+        for item in self.items.iter_mut() {
             // Show the first config.spread.max_count items.
             if no <= config.spread.max_count {
                 let target = Style {
@@ -124,6 +129,7 @@ impl Stack {
                 };
 
                 if item.state == State::Alive {
+                    no += 1;
                     top_y = target.y + target.h + config.spread.gap;
                 }
 
@@ -154,10 +160,11 @@ impl Stack {
     }
 
     pub fn layout_stack(&mut self, config: &config::Config) {
-        info!(target: "stack", "re-layout in stack mode");
+        debug!(target: "stack", "re-layout in stack mode");
 
+        let mut no = 0;
         let mut top_y = config.margin.y;
-        for (no, item) in self.items.iter_mut().enumerate() {
+        for item in self.items.iter_mut() {
             // Renders the first item as a regular block.
             if no == 0 {
                 let target = Style {
@@ -172,6 +179,7 @@ impl Stack {
                 };
 
                 if item.state == State::Alive {
+                    no += 1;
                     top_y = target.y + target.h;
                 }
 
@@ -181,19 +189,21 @@ impl Stack {
                 );
             } else if no < config.stack.max_count {
                 // Render the stack entries.
-                let no = no as f32;
-
                 let target = Style {
-                    x: config.margin.x + no * config.stack.inset,
+                    x: config.margin.x + (no as f32) * config.stack.inset,
                     y: top_y - config.stack.peek,
-                    w: config.width - 2. * no * config.stack.inset,
+                    w: config.width - 2. * (no as f32) * config.stack.inset,
                     h: 2. * config.stack.peek,
                     opacity: match item.state {
                         State::Alive => 1.,
                         State::Dismissed => 0.,
                     },
                 };
-                top_y = target.y + target.h;
+
+                if item.state == State::Alive {
+                    no += 1;
+                    top_y = target.y + target.h;
+                }
 
                 item.set_style(
                     None,

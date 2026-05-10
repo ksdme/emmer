@@ -6,13 +6,15 @@ use crate::{
     },
 };
 
-#[derive(PartialEq)]
+#[derive(Debug, PartialEq)]
 pub enum State {
     Alive,
     Dismissed,
 }
 
+#[derive(Debug)]
 pub struct Item {
+    pub id: usize,
     pub state: State,
 
     // The height of each item is based on its contents. So, we need to
@@ -25,8 +27,9 @@ pub struct Item {
 }
 
 impl Item {
-    pub fn new(style: Style) -> Self {
+    pub fn new(id: usize, style: Style) -> Self {
         Self {
+            id,
             state: State::Alive,
 
             h: style.h,

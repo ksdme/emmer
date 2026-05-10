@@ -21,6 +21,7 @@ impl Style {
 }
 
 /// Represents the parameters of a transition of a Style into another.
+#[derive(Debug)]
 pub struct Transition {
     start_at: Instant,
     duration: Duration,

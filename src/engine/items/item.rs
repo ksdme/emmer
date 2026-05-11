@@ -1,4 +1,5 @@
 use crate::{
+    config::Theme,
     engine::items::style::{Style, Transition},
     renderer::draw::{
         self,
@@ -49,7 +50,7 @@ impl Item {
 
     /// Progresses the transition attached to the item if any and returns the updated
     /// visual state of the item and a boolean indicating if the transition has settled.
-    pub fn draw(&mut self, canvas: &skia_safe::Canvas) -> bool {
+    pub fn draw(&mut self, theme: &Theme, canvas: &skia_safe::Canvas) -> bool {
         let settled = if let Some(transition) = &mut self.transition {
             let (style, settled) = transition.interpolate(&self.style, None);
 
@@ -70,11 +71,12 @@ impl Item {
         };
 
         draw::block(
-            canvas,
+            theme,
             &Block {
                 shadow: Some(Shadow::SM),
                 ..Default::default()
             },
+            canvas,
             self.style.x,
             self.style.y,
             self.style.w,

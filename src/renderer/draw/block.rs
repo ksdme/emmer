@@ -3,7 +3,7 @@ use skia_safe::{
     utils::shadow_utils::ShadowFlags,
 };
 
-use crate::renderer::colors;
+use crate::{config::Theme, renderer::colors};
 
 /// Represents a border configuration.
 #[derive(Debug, Clone)]
@@ -42,7 +42,16 @@ impl Default for Block {
     }
 }
 
-pub fn block(canvas: &Canvas, config: &Block, x: f32, y: f32, w: f32, h: f32, opacity: f32) {
+pub fn block(
+    theme: &Theme,
+    config: &Block,
+    canvas: &Canvas,
+    x: f32,
+    y: f32,
+    w: f32,
+    h: f32,
+    opacity: f32,
+) {
     // The shape of the block.
     let rect = Rect::from_xywh(x, y, w, h);
     let (path, anti_alias) = match config.radius {
@@ -110,6 +119,17 @@ pub fn block(canvas: &Canvas, config: &Block, x: f32, y: f32, w: f32, h: f32, op
                 .set_stroke_width(b.width)
                 .set_color(colors::scaled_alpha(b.color, opacity))
                 .set_anti_alias(anti_alias),
+        );
+    }
+
+    // Text.
+    if opacity >= 0.75 {
+        canvas.draw_text_align(
+            "Hello :)",
+            (x + 12., y + 30.),
+            &theme.body_font,
+            &theme.body_paint,
+            skia_safe::utils::text_utils::Align::Left,
         );
     }
 }

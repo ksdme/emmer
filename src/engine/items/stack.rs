@@ -3,7 +3,7 @@ use std::time::Duration;
 use log::{debug, info};
 
 use crate::{
-    config,
+    config::{self, Theme},
     engine::items::{
         item::{Item, State},
         style::{Style, Transition},
@@ -50,7 +50,7 @@ impl Stack {
                 x: config.margin.x,
                 y: -config.margin.y,
                 w: config.width,
-                h: rand::random_range(64.0..100.0),
+                h: rand::random_range(64.0..80.0),
                 opacity: 1.,
             },
         );
@@ -82,12 +82,12 @@ impl Stack {
         self.layout(config);
     }
 
-    pub fn draw(&mut self, canvas: &skia_safe::Canvas) -> bool {
+    pub fn draw(&mut self, theme: &Theme, canvas: &skia_safe::Canvas) -> bool {
         let mut pending = false;
 
         for no in (0..self.items.len()).rev() {
             if let Some(item) = self.items.get_mut(no) {
-                let settled = item.draw(canvas);
+                let settled = item.draw(theme, canvas);
 
                 // If the item was marked as dismissed, and the transition
                 // around it has settled, then, remove it from memory.

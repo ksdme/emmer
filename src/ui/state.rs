@@ -7,7 +7,11 @@ use wayland_client::{
     protocol::{wl_shm::Format, wl_surface::WlSurface},
 };
 
-use crate::{config::Config, engine::items::Stack, ui::app::App};
+use crate::{
+    config::{Config, Theme},
+    engine::items::{LayoutMode, Stack},
+    ui::app::App,
+};
 
 /// The state of the application and its associated drivers for the
 /// event loop.
@@ -16,8 +20,10 @@ pub struct State {
     pub width: i32,
     pub height: i32,
 
-    pub config: Config,
     pub stack: Stack,
+
+    config: Config,
+    theme: Theme,
 }
 
 impl State {
@@ -26,8 +32,10 @@ impl State {
             width: 0,
             height: 0,
 
-            config,
             stack: Stack::new(),
+
+            theme: Theme::from(&config.theme),
+            config,
         }
     }
 
@@ -40,7 +48,7 @@ impl State {
         let mut surface = surfaces::raster_n32_premul((self.width, self.height))
             .context("Could not create skia surface")?;
 
-        let request_callback = self.stack.draw(surface.canvas());
+        let request_callback = self.stack.draw(&self.theme, surface.canvas());
         let (frame_buffer, canvas) = pool
             .create_buffer(self.width, self.height, self.width * 4, Format::Argb8888)
             .context("Could not create buffer on pool")?;
@@ -64,5 +72,17 @@ impl State {
         wl_surface.commit();
 
         Ok(())
+    }
+
+    pub fn push(&mut self) {
+        self.stack.push(&self.config);
+    }
+
+    pub fn dismiss(&mut self, at: (f32, f32)) {
+        self.stack.dismiss(&self.config, at);
+    }
+
+    pub fn set_mode(&mut self, mode: LayoutMode) {
+        self.stack.set_mode(&self.config, mode);
     }
 }

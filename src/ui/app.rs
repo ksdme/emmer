@@ -26,7 +26,11 @@ use wayland_client::{
     protocol::{wl_keyboard::WlKeyboard, wl_pointer::WlPointer, wl_seat},
 };
 
-use crate::{config, engine::items::LayoutMode, ui::state::State};
+use crate::{
+    config::{self, Measure, SpreadConfig, StackConfig, ThemeConfig},
+    engine::items::LayoutMode,
+    ui::state::State,
+};
 
 /// The top level Wayland client.
 pub struct App {
@@ -158,7 +162,7 @@ impl LayerShellHandler for App {
         debug!(target: "wl_layer_shell_handler", "configure");
 
         self.state.width = 128 * 3;
-        self.state.height = 128 * 3;
+        self.state.height = 128 * 6;
 
         // Setup size.
         layer.set_size(self.state.width as u32, self.state.height as u32);
@@ -203,10 +207,8 @@ impl PointerHandler for App {
                 } => {
                     trace!("wl_pointer: frame click");
                     if button == BTN_RIGHT {
-                        self.state.stack.dismiss(
-                            &self.state.config,
-                            (e.position.0 as f32, e.position.1 as f32),
-                        );
+                        self.state
+                            .dismiss((e.position.0 as f32, e.position.1 as f32));
                         self.state
                             .draw(qh, &e.surface, &mut self.slot_pool)
                             .context("Could not draw on dismiss")
@@ -216,9 +218,7 @@ impl PointerHandler for App {
                 }
                 smithay_client_toolkit::seat::pointer::PointerEventKind::Enter { serial: _ } => {
                     trace!("wl_pointer: frame expanding");
-                    self.state
-                        .stack
-                        .set_mode(&self.state.config, LayoutMode::Spread);
+                    self.state.set_mode(LayoutMode::Spread);
                     self.state
                         .draw(qh, &e.surface, &mut self.slot_pool)
                         .context("Could not draw on frame expanding")
@@ -227,9 +227,7 @@ impl PointerHandler for App {
                 }
                 smithay_client_toolkit::seat::pointer::PointerEventKind::Leave { serial: _ } => {
                     trace!("wl_pointer: frame contracting");
-                    self.state
-                        .stack
-                        .set_mode(&self.state.config, LayoutMode::Stacked);
+                    self.state.set_mode(LayoutMode::Stacked);
                     self.state
                         .draw(qh, &e.surface, &mut self.slot_pool)
                         .context("Could not draw on frame contracting")
@@ -302,7 +300,7 @@ impl KeyboardHandler for App {
 
         let surface = self.layer_surface.wl_surface();
         if e.keysym.key_char() == Some('a') {
-            self.state.stack.push(&self.state.config);
+            self.state.push();
             self.state
                 .draw(qh, &surface, &mut self.slot_pool)
                 .context("Could not draw on push")
@@ -451,15 +449,18 @@ impl App {
                 slot_pool,
 
                 state: State::new(config::Config {
-                    margin: config::Measure { x: 32., y: 32. },
-                    spread: config::Spread {
+                    margin: Measure { x: 32., y: 32. },
+                    spread: SpreadConfig {
                         gap: 8.,
                         max_count: 8,
                     },
-                    stack: config::Stack {
+                    stack: StackConfig {
                         peek: 12.,
                         inset: 8.,
-                        max_count: 3,
+                        max_count: 4,
+                    },
+                    theme: ThemeConfig {
+                        font_family: "Ubuntu".into(),
                     },
                     width: 320.,
                 }),

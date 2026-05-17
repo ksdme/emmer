@@ -27,7 +27,7 @@ use wayland_client::{
 };
 
 use crate::{
-    config::{self, Measure, SpreadConfig, StackConfig, ThemeConfig},
+    config::{ComputedConfig, Config, Insets, SpreadConfig, StackConfig, ThemeConfig},
     engine::items::LayoutMode,
     ui::state::State,
 };
@@ -448,22 +448,23 @@ impl App {
                 shm,
                 slot_pool,
 
-                state: State::new(config::Config {
-                    margin: Measure { x: 32., y: 32. },
+                state: State::new(ComputedConfig::from(Config {
+                    margin: Insets { x: 32., y: 32. },
+                    padding: Insets { x: 12., y: 12. },
                     spread: SpreadConfig {
                         gap: 8.,
                         max_count: 8,
                     },
                     stack: StackConfig {
-                        peek: 12.,
+                        peek: 8.,
                         inset: 8.,
-                        max_count: 4,
+                        max_count: 3,
                     },
                     theme: ThemeConfig {
                         font_family: "Ubuntu".into(),
                     },
                     width: 320.,
-                }),
+                })),
             },
             event_queue,
         ))

@@ -1,7 +1,10 @@
-use anyhow::Context;
-use skia_safe::{Color, Font, FontStyle, Paint};
+use skia_safe::{
+    Color, FontMgr, Paint,
+    textlayout::{FontCollection, TextStyle},
+};
 
-pub struct Measure {
+#[derive(Debug)]
+pub struct Insets {
     /// The measure in the horizontal axis.
     pub x: f32,
 
@@ -9,6 +12,7 @@ pub struct Measure {
     pub y: f32,
 }
 
+#[derive(Debug)]
 pub struct StackConfig {
     /// The height by which each stacked card will be peeking outside the
     /// the previous card.
@@ -23,6 +27,7 @@ pub struct StackConfig {
     pub max_count: usize,
 }
 
+#[derive(Debug)]
 pub struct SpreadConfig {
     /// The gap between each notification card when the cards are spread out.
     pub gap: f32,
@@ -32,7 +37,9 @@ pub struct SpreadConfig {
     pub max_count: usize,
 }
 
+#[derive(Debug)]
 pub struct ThemeConfig {
+    /// The font family for all content.
     pub font_family: String,
 }
 
@@ -40,12 +47,16 @@ pub struct ThemeConfig {
 // TODO: Support spread on stack.
 // TODO: Support font sizes.
 /// Represents the global application configuration.
+#[derive(Debug)]
 pub struct Config {
-    /// The margin around the cards.
-    pub margin: Measure,
-
     /// The width of a notification card.
     pub width: f32,
+
+    /// The margin around the cards.
+    pub margin: Insets,
+
+    /// The padding inside the cards.
+    pub padding: Insets,
 
     /// The configuration of the notification stack.
     pub stack: StackConfig,
@@ -57,43 +68,68 @@ pub struct Config {
     pub theme: ThemeConfig,
 }
 
-/// A theme object with pre-computations.
+#[derive(Debug)]
 pub struct Theme {
-    pub title_font: Font,
-    pub title_paint: Paint,
+    pub font_collection: FontCollection,
 
-    pub body_font: Font,
-    pub body_paint: Paint,
+    pub title_style: TextStyle,
+    pub body_style: TextStyle,
 }
 
-impl From<&ThemeConfig> for Theme {
-    fn from(config: &ThemeConfig) -> Self {
-        let font_mgr = skia_safe::FontMgr::default();
+impl From<ThemeConfig> for Theme {
+    fn from(config: ThemeConfig) -> Self {
+        let mut font_collection = FontCollection::new();
+        font_collection.set_default_font_manager(FontMgr::default(), None);
 
-        let bold_face = font_mgr
-            .match_family_style(&config.font_family, FontStyle::bold())
-            .context("Could not resolve bold font face")
-            .unwrap();
-        let title_font = Font::from_typeface(bold_face, 14.);
+        let mut text_paint = Paint::default();
+        text_paint.set_color(Color::from_rgb(255, 255, 255));
 
-        let mut title_paint = Paint::default();
-        title_paint.set_color(Color::from_rgb(255, 255, 255));
+        let mut title_style = TextStyle::default();
+        title_style
+            .set_font_families(&[&config.font_family.clone()])
+            .set_font_size(14.)
+            .set_foreground_paint(&text_paint);
 
-        let normal_face = font_mgr
-            .match_family_style(&config.font_family, FontStyle::normal())
-            .context("Could not resolve normal font face")
-            .unwrap();
-        let body_font = Font::from_typeface(normal_face, 13.);
+        let mut body_style = TextStyle::default();
+        body_style
+            .set_font_families(&[&config.font_family])
+            .set_font_size(13.)
+            .set_foreground_paint(&text_paint);
 
-        let mut body_paint = Paint::default();
-        body_paint.set_color(Color::from_rgb(255, 255, 255));
+        Self {
+            font_collection,
+            title_style,
+            body_style,
+        }
+    }
+}
 
-        Theme {
-            title_font,
-            title_paint,
+/// Represents a prepared configuration.
+#[derive(Debug)]
+pub struct ComputedConfig {
+    pub width: f32,
 
-            body_font,
-            body_paint,
+    pub margin: Insets,
+    pub padding: Insets,
+
+    pub stack: StackConfig,
+    pub spread: SpreadConfig,
+
+    pub theme: Theme,
+}
+
+impl From<Config> for ComputedConfig {
+    fn from(config: Config) -> Self {
+        Self {
+            width: config.width,
+
+            margin: config.margin,
+            padding: config.padding,
+
+            stack: config.stack,
+            spread: config.spread,
+
+            theme: Theme::from(config.theme),
         }
     }
 }

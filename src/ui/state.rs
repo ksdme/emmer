@@ -8,7 +8,7 @@ use wayland_client::{
 };
 
 use crate::{
-    config::{Config, Theme},
+    config::ComputedConfig,
     engine::items::{LayoutMode, Stack},
     ui::app::App,
 };
@@ -22,19 +22,17 @@ pub struct State {
 
     pub stack: Stack,
 
-    config: Config,
-    theme: Theme,
+    config: ComputedConfig,
 }
 
 impl State {
-    pub fn new(config: Config) -> Self {
+    pub fn new(config: ComputedConfig) -> Self {
         Self {
             width: 0,
             height: 0,
 
             stack: Stack::new(),
 
-            theme: Theme::from(&config.theme),
             config,
         }
     }
@@ -48,7 +46,7 @@ impl State {
         let mut surface = surfaces::raster_n32_premul((self.width, self.height))
             .context("Could not create skia surface")?;
 
-        let request_callback = self.stack.draw(&self.theme, surface.canvas());
+        let request_callback = self.stack.draw(&self.config, surface.canvas());
         let (frame_buffer, canvas) = pool
             .create_buffer(self.width, self.height, self.width * 4, Format::Argb8888)
             .context("Could not create buffer on pool")?;

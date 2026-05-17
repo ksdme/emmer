@@ -54,8 +54,8 @@ pub struct PartialStyle {
 /// Represents the parameters of a transition of a Style into another.
 #[derive(Debug)]
 pub struct Transition {
+    start_at: Instant,
     duration: Duration,
-    started_at: Instant,
     target: PartialStyle,
 }
 
@@ -73,9 +73,9 @@ macro_rules! interp {
 
 impl Transition {
     /// Returns a new transition to target_state with the clock starting now.
-    pub fn new(duration: Duration, target: PartialStyle) -> Self {
+    pub fn new(duration: Duration, target: PartialStyle, delay: Option<Duration>) -> Self {
         Self {
-            started_at: Instant::now(),
+            start_at: Instant::now() + delay.unwrap_or_default(),
             duration,
             target,
         }
@@ -86,7 +86,7 @@ impl Transition {
         // The progress of the transition as [0, 1].
         let progress = now
             .unwrap_or(Instant::now())
-            .duration_since(self.started_at)
+            .duration_since(self.start_at)
             .as_secs_f32()
             .div(self.duration.as_secs_f32())
             .clamp(0., 1.);

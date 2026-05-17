@@ -144,7 +144,11 @@ impl Stack {
 
                 item.set_style(
                     None,
-                    vec![Transition::new(Duration::from_millis(500), target.into())],
+                    vec![Transition::new(
+                        Duration::from_millis(500),
+                        target.into(),
+                        None,
+                    )],
                 );
             } else {
                 // The rest of the items should naturally just go sit at the bottom.
@@ -163,7 +167,11 @@ impl Stack {
                     None,
                     // We are using a transition here instead of setting the value
                     // immediately so a new item will also act as expected.
-                    vec![Transition::new(Duration::from_millis(500), target.into())],
+                    vec![Transition::new(
+                        Duration::from_millis(500),
+                        target.into(),
+                        None,
+                    )],
                 );
             }
         }
@@ -201,7 +209,11 @@ impl Stack {
 
                 item.set_style(
                     None,
-                    vec![Transition::new(Duration::from_millis(500), target.into())],
+                    vec![Transition::new(
+                        Duration::from_millis(500),
+                        target.into(),
+                        None,
+                    )],
                 );
             } else if no < config.stack.max_count {
                 // Render the stack entries.
@@ -229,8 +241,8 @@ impl Stack {
                 item.set_style(
                     None,
                     vec![
-                        Transition::new(Duration::from_millis(500), target),
-                        Transition::new(Duration::from_millis(25), target_text),
+                        Transition::new(Duration::from_millis(500), target, None),
+                        Transition::new(Duration::from_millis(25), target_text, None),
                     ],
                 );
             } else {
@@ -248,7 +260,11 @@ impl Stack {
 
                 item.set_style(
                     None,
-                    vec![Transition::new(Duration::from_millis(500), target.into())],
+                    vec![Transition::new(
+                        Duration::from_millis(500),
+                        target.into(),
+                        None,
+                    )],
                 );
             }
         }

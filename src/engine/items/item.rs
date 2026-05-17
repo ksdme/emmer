@@ -1,3 +1,5 @@
+use std::time::Instant;
+
 use skia_safe::textlayout::{Paragraph, ParagraphBuilder, ParagraphStyle};
 
 use crate::{
@@ -39,21 +41,20 @@ impl Item {
         }
     }
 
-    /// Progresses the transition attached to the item if any and returns the updated
-    /// visual state of the item and a boolean indicating if the transition has settled.
-    pub fn draw(&mut self, config: &ComputedConfig, canvas: &skia_safe::Canvas) -> bool {
-        // Progress all transitions on the item.
-        self.transitions.retain(|transition| {
-            let (style, settled) = transition.interpolate(&self.style, None);
+    /// Progresses the transition attached to the item if any and a boolean indicating
+    /// if all the transitions have settled.
+    pub fn tick(&mut self, now: &Instant) -> bool {
+        self.transitions.retain_mut(|transition| {
+            let (style, settled) = transition.interpolate(&self.style, now);
             self.style = style;
             !settled
         });
 
-        let settled = self.transitions.is_empty();
-        if !self.style.visible() {
-            return settled;
-        }
+        self.transitions.is_empty()
+    }
 
+    /// Renders the current item to a skia canvas.
+    pub fn render(&mut self, config: &ComputedConfig, canvas: &skia_safe::Canvas) {
         draw::block(
             &Block {
                 shadow: Some(Shadow::SM),
@@ -90,8 +91,6 @@ impl Item {
 
             canvas.restore();
         }
-
-        settled
     }
 
     pub fn set_style(&mut self, current: Option<Style>, transitions: Vec<Transition>) {

@@ -56,15 +56,17 @@ pub struct PartialStyle {
 pub struct Transition {
     start_at: Instant,
     duration: Duration,
-    target: PartialStyle,
+
+    from: Option<Style>,
+    to: PartialStyle,
 }
 
 macro_rules! interp {
-    ($target:expr, $current:expr, $progress:expr) => {
+    ($target:expr, $from:expr, $current:expr, $progress:expr) => {
         if let Some(target) = $target
-            && target != $current
+            && target != $from
         {
-            $current + (target - $current) * $progress
+            $from + (target - $from) * $progress
         } else {
             $current
         }
@@ -72,36 +74,52 @@ macro_rules! interp {
 }
 
 impl Transition {
-    /// Returns a new transition to target_state with the clock starting now.
-    pub fn new(duration: Duration, target: PartialStyle, delay: Option<Duration>) -> Self {
+    /// Returns a new transition to target_state with a shared clock.
+    pub fn new(duration: Duration, to: PartialStyle, start_at: Option<Instant>) -> Self {
         Self {
-            start_at: Instant::now() + delay.unwrap_or_default(),
+            start_at: start_at.unwrap_or_else(|| Instant::now()),
             duration,
-            target,
+
+            from: None,
+            to,
         }
     }
 
     /// Interpolates the transition to an Instant.
-    pub fn interpolate(&self, current: &Style, now: Option<Instant>) -> (Style, bool) {
+    pub fn interpolate(&mut self, current: &Style, now: &Instant) -> (Style, bool) {
         // The progress of the transition as [0, 1].
         let progress = now
-            .unwrap_or(Instant::now())
-            .duration_since(self.start_at)
+            .checked_duration_since(self.start_at)
+            .unwrap_or_default()
             .as_secs_f32()
             .div(self.duration.as_secs_f32())
             .clamp(0., 1.);
 
+        // The first interpolation request is treated as the starting point of
+        // the transition.
+        let from = self.from.get_or_insert_with(|| current.clone());
+
         // Return an interpolated visual state along with a boolean indicating if the
         // transition is complete.
-        let target = &self.target;
+        let to = &self.to;
         (
             Style {
-                w: interp!(target.w, current.w, progress),
-                h: interp!(target.h, current.h, progress),
-                x: interp!(target.x, current.x, progress),
-                y: interp!(target.y, current.y, progress),
-                box_opacity: interp!(target.box_opacity, current.box_opacity, progress),
-                text_opacity: interp!(target.text_opacity, current.text_opacity, progress),
+                w: interp!(to.w, from.w, current.w, progress),
+                h: interp!(to.h, from.h, current.h, progress),
+                x: interp!(to.x, from.x, current.x, progress),
+                y: interp!(to.y, from.y, current.y, progress),
+                box_opacity: interp!(
+                    to.box_opacity,
+                    from.box_opacity,
+                    current.box_opacity,
+                    progress
+                ),
+                text_opacity: interp!(
+                    to.text_opacity,
+                    from.text_opacity,
+                    current.text_opacity,
+                    progress
+                ),
             },
             progress >= 1.,
         )

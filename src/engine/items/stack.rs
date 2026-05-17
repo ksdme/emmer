@@ -1,4 +1,4 @@
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use log::{debug, info};
 
@@ -86,33 +86,36 @@ impl Stack {
     }
 
     pub fn draw(&mut self, config: &ComputedConfig, canvas: &skia_safe::Canvas) -> bool {
-        let mut pending = false;
+        let now = Instant::now();
 
+        let mut settled = true;
         for no in (0..self.items.len()).rev() {
             if let Some(item) = self.items.get_mut(no) {
-                let settled = item.draw(config, canvas);
+                let item_settled = item.tick(&now);
+                item.render(config, canvas);
 
                 // If the item was marked as dismissed, and the transition
                 // around it has settled, then, remove it from memory.
-                if settled && item.state == State::Dismissed {
+                if item_settled && item.state == State::Dismissed {
                     self.items.remove(no);
                 }
 
-                pending |= !settled;
+                settled &= item_settled;
             }
         }
 
-        pending
+        !settled
     }
 
     pub fn layout(&mut self, config: &ComputedConfig) {
+        let now = Instant::now();
         match self.layout_mode {
-            LayoutMode::Spread => self.layout_spread(config),
-            LayoutMode::Stacked => self.layout_stack(config),
+            LayoutMode::Spread => self.layout_spread(config, now),
+            LayoutMode::Stacked => self.layout_stack(config, now),
         }
     }
 
-    fn layout_spread(&mut self, config: &ComputedConfig) {
+    fn layout_spread(&mut self, config: &ComputedConfig, now: Instant) {
         debug!(target: "stack", "re-layout in spread mode");
 
         let mut no = 0;
@@ -125,8 +128,10 @@ impl Stack {
                 let target = Style {
                     x: config.margin.x,
                     y: top_y,
+
                     w: item_w,
                     h: item_h,
+
                     box_opacity: match item.state {
                         State::Alive => 1.,
                         State::Dismissed => 0.,
@@ -145,9 +150,9 @@ impl Stack {
                 item.set_style(
                     None,
                     vec![Transition::new(
-                        Duration::from_millis(500),
+                        Duration::from_millis(200),
                         target.into(),
-                        None,
+                        Some(now),
                     )],
                 );
             } else {
@@ -157,8 +162,10 @@ impl Stack {
                 let target = Style {
                     x: config.margin.x,
                     y: top_y + config.spread.gap,
+
                     w: item_w,
                     h: item_h,
+
                     box_opacity: 0.,
                     text_opacity: 0.,
                 };
@@ -168,16 +175,16 @@ impl Stack {
                     // We are using a transition here instead of setting the value
                     // immediately so a new item will also act as expected.
                     vec![Transition::new(
-                        Duration::from_millis(500),
+                        Duration::from_millis(200),
                         target.into(),
-                        None,
+                        Some(now),
                     )],
                 );
             }
         }
     }
 
-    pub fn layout_stack(&mut self, config: &ComputedConfig) {
+    pub fn layout_stack(&mut self, config: &ComputedConfig, now: Instant) {
         debug!(target: "stack", "re-layout in stack mode");
 
         let mut no = 0;
@@ -190,8 +197,10 @@ impl Stack {
                 let target = Style {
                     x: config.margin.x,
                     y: top_y,
+
                     w: item_w,
                     h: item_h,
+
                     box_opacity: match item.state {
                         State::Alive => 1.,
                         State::Dismissed => 0.,
@@ -210,9 +219,9 @@ impl Stack {
                 item.set_style(
                     None,
                     vec![Transition::new(
-                        Duration::from_millis(500),
+                        Duration::from_millis(200),
                         target.into(),
-                        None,
+                        Some(now),
                     )],
                 );
             } else if no < config.stack.max_count {
@@ -220,8 +229,10 @@ impl Stack {
                 let target = PartialStyle {
                     x: Some(config.margin.x + (no as f32) * config.stack.inset),
                     y: Some(top_y - config.stack.peek),
+
                     w: Some(config.width - 2. * (no as f32) * config.stack.inset),
                     h: Some(2. * config.stack.peek),
+
                     box_opacity: Some(match item.state {
                         State::Alive => 1.,
                         State::Dismissed => 0.,
@@ -241,30 +252,40 @@ impl Stack {
                 item.set_style(
                     None,
                     vec![
-                        Transition::new(Duration::from_millis(500), target, None),
-                        Transition::new(Duration::from_millis(25), target_text, None),
+                        Transition::new(Duration::from_millis(200), target, Some(now)),
+                        Transition::new(Duration::from_millis(25), target_text, Some(now)),
                     ],
                 );
             } else {
                 // Render the rest of the items as hidden.
                 let max_no = (config.stack.max_count + 1) as f32;
 
-                let target = Style {
-                    x: config.margin.x + max_no * config.stack.inset,
-                    y: top_y - config.stack.peek,
-                    w: config.width - 2. * max_no * config.stack.inset,
-                    h: 2. * config.stack.peek,
-                    box_opacity: 0.,
-                    text_opacity: 0.,
-                };
-
                 item.set_style(
                     None,
-                    vec![Transition::new(
-                        Duration::from_millis(500),
-                        target.into(),
-                        None,
-                    )],
+                    vec![
+                        Transition::new(
+                            Duration::from_millis(200),
+                            PartialStyle {
+                                x: Some(config.margin.x + max_no * config.stack.inset),
+                                y: Some(top_y - config.stack.peek),
+
+                                w: Some(config.width - 2. * max_no * config.stack.inset),
+                                h: Some(2. * config.stack.peek),
+
+                                box_opacity: Some(0.),
+                                text_opacity: None,
+                            },
+                            Some(now),
+                        ),
+                        Transition::new(
+                            Duration::from_millis(25),
+                            PartialStyle {
+                                text_opacity: Some(0.),
+                                ..Default::default()
+                            },
+                            Some(now),
+                        ),
+                    ],
                 );
             }
         }

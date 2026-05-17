@@ -1,6 +1,9 @@
 use std::time::Instant;
 
-use skia_safe::textlayout::{Paragraph, ParagraphBuilder, ParagraphStyle};
+use skia_safe::{
+    ClipOp, Rect,
+    textlayout::{Paragraph, ParagraphBuilder, ParagraphStyle},
+};
 
 use crate::{
     config::ComputedConfig,
@@ -29,12 +32,12 @@ pub struct Item {
 }
 
 impl Item {
-    pub fn new(config: &ComputedConfig, id: usize, style: Style) -> Self {
+    pub fn new(config: &ComputedConfig, id: usize) -> Self {
         Self {
             id,
             state: State::Alive,
 
-            style,
+            style: Style::default(),
             transitions: vec![],
 
             render_cache: ItemRenderCache::new(config),
@@ -69,23 +72,44 @@ impl Item {
         );
 
         if self.style.text_opacity > 0. {
+            // We do this because the text style is baked into the render cache during
+            // the object construction.
             canvas.save_layer_alpha_f(None, self.style.text_opacity);
 
+            let avail_h = self.style.h - 2. * config.padding.y;
+            let content_h = self.render_cache.content_height();
+            let y = if content_h > avail_h {
+                // Clip the overflowing region.
+                canvas.clip_rect(
+                    Rect::from_xywh(
+                        self.style.x + config.padding.x,
+                        self.style.y + config.padding.y,
+                        self.style.w - 2. * config.padding.x,
+                        self.style.h - 2. * config.padding.y,
+                    ),
+                    ClipOp::Intersect,
+                    false,
+                );
+
+                // Anchor the content to the bottom of the box. Since the clip is a
+                // fixed window, the easiest way to anchor is to do it during the draw.
+                // TODO: Does bottom anchoring work in all cases?
+                self.style.y + config.padding.y - (content_h - avail_h)
+            } else {
+                self.style.y + config.padding.y
+            };
+
             // Draw the title.
-            self.render_cache.title_p.paint(
-                canvas,
-                (
-                    self.style.x + config.padding.x,
-                    self.style.y + config.padding.y,
-                ),
-            );
+            self.render_cache
+                .title_p
+                .paint(canvas, (self.style.x + config.padding.x, y));
 
             // Draw the body.
             self.render_cache.body_p.paint(
                 canvas,
                 (
                     self.style.x + config.padding.x,
-                    self.style.y + config.padding.y + self.render_cache.title_p.height() + 8.,
+                    y + self.render_cache.title_p.height() + 8.,
                 ),
             );
 
@@ -93,11 +117,11 @@ impl Item {
         }
     }
 
-    pub fn set_style(&mut self, current: Option<Style>, transitions: Vec<Transition>) {
-        if let Some(current) = current {
-            self.style = current;
-        }
+    pub fn set_style(&mut self, style: Style) {
+        self.style = style;
+    }
 
+    pub fn set_transitions(&mut self, transitions: Vec<Transition>) {
         self.transitions = transitions;
     }
 

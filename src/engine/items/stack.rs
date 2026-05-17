@@ -45,18 +45,17 @@ impl Stack {
     // TODO: Lock the items.
     /// Push a new item on the stack.
     pub fn push(&mut self, config: &ComputedConfig) {
-        let item = Item::new(
-            config,
-            self.items.len(),
-            Style {
-                x: config.margin.x,
-                y: -config.margin.y,
-                w: config.width,
-                h: rand::random_range(64.0..80.0),
-                box_opacity: 1.,
-                text_opacity: 1.,
-            },
-        );
+        let mut item = Item::new(config, self.items.len());
+
+        let (_, h) = item.size(config);
+        item.set_style(Style {
+            x: config.margin.x,
+            y: -config.margin.y,
+            w: config.width,
+            h: h,
+            box_opacity: 1.,
+            text_opacity: 1.,
+        });
 
         info!(target: "stack", "push: {:?}", &item.id);
         self.items.insert(0, item);
@@ -147,14 +146,11 @@ impl Stack {
                     top_y = target.y + target.h + config.spread.gap;
                 }
 
-                item.set_style(
-                    None,
-                    vec![Transition::new(
-                        Duration::from_millis(200),
-                        target.into(),
-                        Some(now),
-                    )],
-                );
+                item.set_transitions(vec![Transition::new(
+                    Duration::from_millis(200),
+                    target.into(),
+                    Some(now),
+                )]);
             } else {
                 // The rest of the items should naturally just go sit at the bottom.
                 // It doesn't matter if all the other items sit are on top of each other
@@ -170,8 +166,7 @@ impl Stack {
                     text_opacity: 0.,
                 };
 
-                item.set_style(
-                    None,
+                item.set_transitions(
                     // We are using a transition here instead of setting the value
                     // immediately so a new item will also act as expected.
                     vec![Transition::new(
@@ -216,14 +211,11 @@ impl Stack {
                     top_y = target.y + target.h;
                 }
 
-                item.set_style(
-                    None,
-                    vec![Transition::new(
-                        Duration::from_millis(200),
-                        target.into(),
-                        Some(now),
-                    )],
-                );
+                item.set_transitions(vec![Transition::new(
+                    Duration::from_millis(200),
+                    target.into(),
+                    Some(now),
+                )]);
             } else if no < config.stack.max_count {
                 // Render the stack entries.
                 let target = PartialStyle {
@@ -237,11 +229,7 @@ impl Stack {
                         State::Alive => 1.,
                         State::Dismissed => 0.,
                     }),
-                    text_opacity: None,
-                };
-                let target_text = PartialStyle {
                     text_opacity: Some(0.),
-                    ..Default::default()
                 };
 
                 if item.state == State::Alive {
@@ -249,44 +237,39 @@ impl Stack {
                     top_y = target.y.unwrap_or_default() + target.h.unwrap_or_default();
                 }
 
-                item.set_style(
-                    None,
-                    vec![
-                        Transition::new(Duration::from_millis(200), target, Some(now)),
-                        Transition::new(Duration::from_millis(25), target_text, Some(now)),
-                    ],
-                );
+                item.set_transitions(vec![Transition::new(
+                    Duration::from_millis(200),
+                    target,
+                    Some(now),
+                )]);
             } else {
                 // Render the rest of the items as hidden.
                 let max_no = (config.stack.max_count + 1) as f32;
 
-                item.set_style(
-                    None,
-                    vec![
-                        Transition::new(
-                            Duration::from_millis(200),
-                            PartialStyle {
-                                x: Some(config.margin.x + max_no * config.stack.inset),
-                                y: Some(top_y - config.stack.peek),
+                item.set_transitions(vec![
+                    Transition::new(
+                        Duration::from_millis(200),
+                        PartialStyle {
+                            x: Some(config.margin.x + max_no * config.stack.inset),
+                            y: Some(top_y - config.stack.peek),
 
-                                w: Some(config.width - 2. * max_no * config.stack.inset),
-                                h: Some(2. * config.stack.peek),
+                            w: Some(config.width - 2. * max_no * config.stack.inset),
+                            h: Some(2. * config.stack.peek),
 
-                                box_opacity: Some(0.),
-                                text_opacity: None,
-                            },
-                            Some(now),
-                        ),
-                        Transition::new(
-                            Duration::from_millis(25),
-                            PartialStyle {
-                                text_opacity: Some(0.),
-                                ..Default::default()
-                            },
-                            Some(now),
-                        ),
-                    ],
-                );
+                            box_opacity: Some(0.),
+                            text_opacity: None,
+                        },
+                        Some(now),
+                    ),
+                    Transition::new(
+                        Duration::from_millis(25),
+                        PartialStyle {
+                            text_opacity: Some(0.),
+                            ..Default::default()
+                        },
+                        Some(now),
+                    ),
+                ]);
             }
         }
     }

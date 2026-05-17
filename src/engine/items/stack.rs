@@ -50,9 +50,14 @@ impl Stack {
         let (_, h) = item.size(config);
         item.set_style(Style {
             x: config.margin.x,
-            y: -config.margin.y,
+            y: match self.layout_mode {
+                LayoutMode::Spread => config.margin.y - config.spread.gap - h,
+                LayoutMode::Stacked => -config.margin.y,
+            },
+
             w: config.width,
             h: h,
+
             box_opacity: 1.,
             text_opacity: 1.,
         });

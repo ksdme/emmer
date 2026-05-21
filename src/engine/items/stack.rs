@@ -52,7 +52,7 @@ impl Stack {
             x: config.margin.x,
             y: match self.layout_mode {
                 LayoutMode::Spread => config.margin.y - config.spread.gap - h,
-                LayoutMode::Stacked => -config.margin.y,
+                LayoutMode::Stacked => -2. * config.margin.y,
             },
 
             w: config.width,
@@ -131,7 +131,10 @@ impl Stack {
             if no <= config.spread.max_count {
                 let target = Style {
                     x: config.margin.x,
-                    y: top_y,
+                    y: match item.state {
+                        State::Alive => top_y,
+                        State::Dismissed => top_y - item_h,
+                    },
 
                     w: item_w,
                     h: item_h,
@@ -148,7 +151,7 @@ impl Stack {
 
                 if item.state == State::Alive {
                     no += 1;
-                    top_y = target.y + target.h + config.spread.gap;
+                    top_y = top_y + target.h + config.spread.gap;
                 }
 
                 item.set_transitions(vec![Transition::new(

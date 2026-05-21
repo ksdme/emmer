@@ -28,7 +28,7 @@ use wayland_client::{
 
 use crate::{
     config::{ComputedConfig, Config, Insets, SpreadConfig, StackConfig, ThemeConfig},
-    engine::items::LayoutMode,
+    ui::items::LayoutMode,
     ui::state::State,
 };
 

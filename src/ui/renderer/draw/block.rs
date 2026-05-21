@@ -3,7 +3,7 @@ use skia_safe::{
     utils::shadow_utils::ShadowFlags,
 };
 
-use crate::renderer::colors;
+use crate::ui::renderer::colors;
 
 /// Represents a border configuration.
 #[derive(Debug, Clone)]

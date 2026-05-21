@@ -2,8 +2,7 @@ use anyhow::{Context, Result};
 use wayland_client::Connection;
 
 mod config;
-mod engine;
-mod renderer;
+mod server;
 mod ui;
 
 fn main() -> Result<()> {

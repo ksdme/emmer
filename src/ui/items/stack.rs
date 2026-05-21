@@ -4,7 +4,7 @@ use log::{debug, info};
 
 use crate::{
     config::ComputedConfig,
-    engine::items::{
+    ui::items::{
         item::{Item, State},
         style::{PartialStyle, Style, Transition},
     },

@@ -9,8 +9,8 @@ use wayland_client::{
 
 use crate::{
     config::ComputedConfig,
-    engine::items::{LayoutMode, Stack},
     ui::app::App,
+    ui::items::{LayoutMode, Stack},
 };
 
 /// The state of the application and its associated drivers for the

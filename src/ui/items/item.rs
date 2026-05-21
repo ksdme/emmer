@@ -7,10 +7,12 @@ use skia_safe::{
 
 use crate::{
     config::ComputedConfig,
-    engine::items::style::{Style, Transition},
-    renderer::draw::{
-        self,
-        block::{Block, Shadow},
+    ui::{
+        items::style::{Style, Transition},
+        renderer::draw::{
+            self,
+            block::{Block, Shadow},
+        },
     },
 };
 

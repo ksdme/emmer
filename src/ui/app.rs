@@ -508,3 +508,19 @@ impl App {
         self.draw().context("Could not draw frame")
     }
 }
+
+/// Represents a message passed from outside the UI thread.
+#[derive(Debug)]
+pub enum UIMessage {
+    Push(notification::Notification),
+}
+
+impl App {
+    pub fn handle(&mut self, msg: UIMessage) -> Result<()> {
+        match msg {
+            UIMessage::Push(notification) => self
+                .push(notification)
+                .context("Could not push notification"),
+        }
+    }
+}

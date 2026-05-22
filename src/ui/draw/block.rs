@@ -3,7 +3,7 @@ use skia_safe::{
     utils::shadow_utils::ShadowFlags,
 };
 
-use crate::ui::renderer::colors;
+use crate::ui::draw::colors;
 
 /// Represents a border configuration.
 #[derive(Debug, Clone)]
@@ -42,7 +42,7 @@ impl Default for Block {
     }
 }
 
-pub fn block(config: &Block, canvas: &Canvas, x: f32, y: f32, w: f32, h: f32, opacity: f32) {
+pub fn draw_block(config: &Block, canvas: &Canvas, x: f32, y: f32, w: f32, h: f32, opacity: f32) {
     // The shape of the block.
     let rect = Rect::from_xywh(x, y, w, h);
     let (path, anti_alias) = match config.radius {

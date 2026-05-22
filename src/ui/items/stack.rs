@@ -4,6 +4,7 @@ use log::{debug, info};
 
 use crate::{
     config::ComputedConfig,
+    notification::Notification,
     ui::items::{
         item::{Item, State},
         style::{PartialStyle, Style, Transition},
@@ -44,8 +45,8 @@ impl Stack {
 
     // TODO: Lock the items.
     /// Push a new item on the stack.
-    pub fn push(&mut self, config: &ComputedConfig) {
-        let mut item = Item::new(config, self.items.len());
+    pub fn push(&mut self, config: &ComputedConfig, notification: Notification) {
+        let mut item = Item::new(config, notification);
 
         let (_, h) = item.size(config);
         item.set_style(Style {
@@ -62,7 +63,7 @@ impl Stack {
             text_opacity: 1.,
         });
 
-        info!(target: "stack", "push: {:?}", &item.id);
+        info!(target: "stack", "push: {:?}", &item.id());
         self.items.insert(0, item);
 
         self.layout(config);
@@ -80,7 +81,7 @@ impl Stack {
         });
 
         if let Some(item) = item {
-            info!(target: "stack", "dismissing: {:?}", &item.id);
+            info!(target: "stack", "dismissing: {:?}", &item.id());
             item.state = State::Dismissed;
         } else {
             info!(target: "stack", "dismiss item not resolved");

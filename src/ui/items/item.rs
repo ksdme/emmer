@@ -7,12 +7,10 @@ use skia_safe::{
 
 use crate::{
     config::ComputedConfig,
+    notification::Notification,
     ui::{
+        draw::block,
         items::style::{Style, Transition},
-        renderer::draw::{
-            self,
-            block::{Block, Shadow},
-        },
     },
 };
 
@@ -24,26 +22,30 @@ pub enum State {
 
 #[derive(Debug)]
 pub struct Item {
-    pub id: usize,
     pub state: State,
+
+    notification: Notification,
+    render_cache: ItemRenderCache,
 
     style: Style,
     transitions: Vec<Transition>,
-
-    render_cache: ItemRenderCache,
 }
 
 impl Item {
-    pub fn new(config: &ComputedConfig, id: usize) -> Self {
+    pub fn new(config: &ComputedConfig, notification: Notification) -> Self {
         Self {
-            id,
             state: State::Alive,
+
+            render_cache: ItemRenderCache::new(config, &notification),
+            notification,
 
             style: Style::default(),
             transitions: vec![],
-
-            render_cache: ItemRenderCache::new(config),
         }
+    }
+
+    pub fn id(&self) -> u32 {
+        self.notification.id
     }
 
     /// Progresses the transition attached to the item if any and a boolean indicating
@@ -60,9 +62,9 @@ impl Item {
 
     /// Renders the current item to a skia canvas.
     pub fn render(&mut self, config: &ComputedConfig, canvas: &skia_safe::Canvas) {
-        draw::block(
-            &Block {
-                shadow: Some(Shadow::SM),
+        block::draw_block(
+            &block::Block {
+                shadow: Some(block::Shadow::SM),
                 ..Default::default()
             },
             canvas,
@@ -155,7 +157,7 @@ struct ItemRenderCache {
 }
 
 impl ItemRenderCache {
-    pub fn new(config: &ComputedConfig) -> Self {
+    pub fn new(config: &ComputedConfig, notification: &Notification) -> Self {
         let w = config.width - 2. * config.padding.x;
 
         let mut p_style = ParagraphStyle::default();
@@ -163,13 +165,13 @@ impl ItemRenderCache {
 
         let mut title_p = ParagraphBuilder::new(&p_style, config.theme.font_collection.clone())
             .push_style(&config.theme.title_style)
-            .add_text("Hello")
+            .add_text(&notification.summary)
             .build();
         title_p.layout(w);
 
         let mut body_p = ParagraphBuilder::new(&p_style, config.theme.font_collection.clone())
             .push_style(&config.theme.body_style)
-            .add_text("Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.")
+            .add_text(&notification.body)
             .build();
         body_p.layout(w);
 

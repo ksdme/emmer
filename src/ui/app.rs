@@ -1,5 +1,6 @@
 use anyhow::{Context, Result};
 use log::{debug, trace};
+use skia_safe::{ImageInfo, surfaces};
 use smithay_client_toolkit::{
     compositor::{CompositorHandler, CompositorState},
     delegate_compositor, delegate_keyboard, delegate_layer, delegate_output, delegate_pointer,
@@ -21,19 +22,21 @@ use smithay_client_toolkit::{
     shm::{Shm, ShmHandler, slot::SlotPool},
 };
 use wayland_client::{
-    Connection, EventQueue, Proxy,
+    Connection, EventQueue, Proxy, QueueHandle,
     globals::registry_queue_init,
-    protocol::{wl_keyboard::WlKeyboard, wl_pointer::WlPointer, wl_seat},
+    protocol::{wl_keyboard::WlKeyboard, wl_pointer::WlPointer, wl_seat, wl_shm::Format},
 };
 
 use crate::{
     config::{ComputedConfig, Config, Insets, SpreadConfig, StackConfig, ThemeConfig},
-    ui::items::LayoutMode,
-    ui::state::State,
+    notification,
+    ui::items::{LayoutMode, Stack},
 };
 
 /// The top level Wayland client.
 pub struct App {
+    queue_handle: QueueHandle<Self>,
+
     registry_state: RegistryState,
     output_state: OutputState,
 
@@ -46,7 +49,12 @@ pub struct App {
     shm: Shm,
     slot_pool: SlotPool,
 
-    pub state: State,
+    // TODO: For some reason, both cairo and smithay expect i32 for dimensions.
+    width: i32,
+    height: i32,
+
+    stack: Stack,
+    config: ComputedConfig,
 }
 
 // Required for compositor delegation.
@@ -108,15 +116,12 @@ impl CompositorHandler for App {
     fn frame(
         &mut self,
         _conn: &Connection,
-        qh: &wayland_client::QueueHandle<Self>,
-        wl_surface: &wayland_client::protocol::wl_surface::WlSurface,
+        _qh: &wayland_client::QueueHandle<Self>,
+        _wl_surface: &wayland_client::protocol::wl_surface::WlSurface,
         _time: u32,
     ) {
         trace!(target: "wl_compositor", "frame");
-        self.state
-            .draw(qh, wl_surface, &mut self.slot_pool)
-            .context("Could not draw frame")
-            .unwrap();
+        self.draw().context("Could not draw frame").unwrap();
     }
 
     fn surface_enter(
@@ -154,28 +159,25 @@ impl LayerShellHandler for App {
     fn configure(
         &mut self,
         _conn: &Connection,
-        qh: &wayland_client::QueueHandle<Self>,
+        _qh: &wayland_client::QueueHandle<Self>,
         layer: &smithay_client_toolkit::shell::wlr_layer::LayerSurface,
         _configure: smithay_client_toolkit::shell::wlr_layer::LayerSurfaceConfigure,
         _serial: u32,
     ) {
         debug!(target: "wl_layer_shell_handler", "configure");
 
-        self.state.width = 128 * 3;
-        self.state.height = 128 * 6;
+        self.width = 128 * 3;
+        self.height = 128 * 6;
 
         // Setup size.
-        layer.set_size(self.state.width as u32, self.state.height as u32);
+        layer.set_size(self.width as u32, self.height as u32);
         layer.commit();
 
         // Setup keyboard.
         layer.set_keyboard_interactivity(KeyboardInteractivity::OnDemand);
         layer.commit();
 
-        self.state
-            .draw(qh, layer.wl_surface(), &mut self.slot_pool)
-            .context("Could not draw frame")
-            .unwrap();
+        self.draw().context("Could not draw frame").unwrap();
     }
 }
 delegate_layer!(App);
@@ -192,7 +194,7 @@ impl PointerHandler for App {
     fn pointer_frame(
         &mut self,
         _conn: &Connection,
-        qh: &wayland_client::QueueHandle<Self>,
+        _qh: &wayland_client::QueueHandle<Self>,
         _pointer: &wayland_client::protocol::wl_pointer::WlPointer,
         events: &[smithay_client_toolkit::seat::pointer::PointerEvent],
     ) {
@@ -207,31 +209,19 @@ impl PointerHandler for App {
                 } => {
                     trace!("wl_pointer: frame click");
                     if button == BTN_RIGHT {
-                        self.state
-                            .dismiss((e.position.0 as f32, e.position.1 as f32));
-                        self.state
-                            .draw(qh, &e.surface, &mut self.slot_pool)
-                            .context("Could not draw on dismiss")
+                        self.dismiss((e.position.0 as f32, e.position.1 as f32))
                             .unwrap();
                         break;
                     }
                 }
                 smithay_client_toolkit::seat::pointer::PointerEventKind::Enter { serial: _ } => {
                     trace!("wl_pointer: frame expanding");
-                    self.state.set_mode(LayoutMode::Spread);
-                    self.state
-                        .draw(qh, &e.surface, &mut self.slot_pool)
-                        .context("Could not draw on frame expanding")
-                        .unwrap();
+                    self.set_mode(LayoutMode::Spread).unwrap();
                     break;
                 }
                 smithay_client_toolkit::seat::pointer::PointerEventKind::Leave { serial: _ } => {
                     trace!("wl_pointer: frame contracting");
-                    self.state.set_mode(LayoutMode::Stacked);
-                    self.state
-                        .draw(qh, &e.surface, &mut self.slot_pool)
-                        .context("Could not draw on frame contracting")
-                        .unwrap();
+                    self.set_mode(LayoutMode::Stacked).unwrap();
                     break;
                 }
                 _ => {}
@@ -291,21 +281,12 @@ impl KeyboardHandler for App {
     fn release_key(
         &mut self,
         _conn: &Connection,
-        qh: &wayland_client::QueueHandle<Self>,
+        _qh: &wayland_client::QueueHandle<Self>,
         _keyboard: &wayland_client::protocol::wl_keyboard::WlKeyboard,
         _serial: u32,
-        e: smithay_client_toolkit::seat::keyboard::KeyEvent,
+        _e: smithay_client_toolkit::seat::keyboard::KeyEvent,
     ) {
         trace!(target: "wl_keyboard", "release_key");
-
-        let surface = self.layer_surface.wl_surface();
-        if e.keysym.key_char() == Some('a') {
-            self.state.push();
-            self.state
-                .draw(qh, &surface, &mut self.slot_pool)
-                .context("Could not draw on push")
-                .unwrap();
-        }
     }
 
     fn update_modifiers(
@@ -402,7 +383,7 @@ impl App {
     /// Initialize the app using a wayland connection.
     pub fn init(conn: &Connection) -> Result<(Self, EventQueue<Self>)> {
         let (globals, event_queue) =
-            registry_queue_init::<App>(conn).context("Could not create wayland queue")?;
+            registry_queue_init::<Self>(conn).context("Could not create wayland queue")?;
         let q_handle = event_queue.handle();
 
         let output_state = OutputState::new(&globals, &q_handle);
@@ -436,6 +417,8 @@ impl App {
 
         Ok((
             App {
+                queue_handle: q_handle,
+
                 registry_state,
                 output_state,
 
@@ -448,7 +431,11 @@ impl App {
                 shm,
                 slot_pool,
 
-                state: State::new(ComputedConfig::from(Config {
+                width: 0,
+                height: 0,
+
+                stack: Stack::new(),
+                config: ComputedConfig::from(Config {
                     margin: Insets { x: 32., y: 32. },
                     padding: Insets { x: 12., y: 12. },
                     spread: SpreadConfig {
@@ -464,9 +451,60 @@ impl App {
                         font_family: "Ubuntu".into(),
                     },
                     width: 320.,
-                })),
+                }),
             },
             event_queue,
         ))
+    }
+}
+
+impl App {
+    pub fn draw(&mut self) -> Result<()> {
+        let mut surface = surfaces::raster_n32_premul((self.width, self.height))
+            .context("Could not create skia surface")?;
+
+        let request_callback = self.stack.draw(&self.config, surface.canvas());
+        let (frame_buffer, canvas) = self
+            .slot_pool
+            .create_buffer(self.width, self.height, self.width * 4, Format::Argb8888)
+            .context("Could not create buffer on pool")?;
+
+        let image_info = ImageInfo::new_n32_premul((surface.width(), surface.height()), None);
+        surface.read_pixels(
+            &image_info,
+            canvas,
+            image_info.bytes_per_pixel() * image_info.width() as usize,
+            (0, 0),
+        );
+
+        let wl_surface = self.layer_surface.wl_surface();
+        frame_buffer
+            .attach_to(wl_surface)
+            .context("Could not attach buffer")?;
+
+        wl_surface.damage_buffer(0, 0, self.width, self.height);
+        if request_callback {
+            trace!(target: "draw", "requesting another frame");
+            wl_surface.frame(&self.queue_handle, wl_surface.clone());
+        }
+
+        wl_surface.commit();
+
+        Ok(())
+    }
+
+    pub fn push(&mut self, notification: notification::Notification) -> Result<()> {
+        self.stack.push(&self.config, notification);
+        self.draw().context("Could not draw frame")
+    }
+
+    pub fn dismiss(&mut self, at: (f32, f32)) -> Result<()> {
+        self.stack.dismiss(&self.config, at);
+        self.draw().context("Could not draw frame")
+    }
+
+    pub fn set_mode(&mut self, mode: LayoutMode) -> Result<()> {
+        self.stack.set_mode(&self.config, mode);
+        self.draw().context("Could not draw frame")
     }
 }

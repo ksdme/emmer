@@ -53,7 +53,7 @@ impl Stack {
             x: config.margin.x,
             y: match self.layout_mode {
                 LayoutMode::Spread => config.margin.y - config.spread.gap - h,
-                LayoutMode::Stacked => -2. * config.margin.y,
+                LayoutMode::Stacked => -config.margin.y,
             },
 
             w: config.width,
@@ -227,12 +227,15 @@ impl Stack {
                 )]);
             } else if no < config.stack.max_count {
                 // Render the stack entries.
+
+                // The height of the card should be smaller than the top-most card.
+                let h = item_h.min(top_y - config.margin.y);
                 let target = PartialStyle {
                     x: Some(config.margin.x + (no as f32) * config.stack.inset),
-                    y: Some(top_y - config.stack.peek),
+                    y: Some(top_y + config.stack.peek - h),
 
                     w: Some(config.width - 2. * (no as f32) * config.stack.inset),
-                    h: Some(2. * config.stack.peek),
+                    h: Some(h),
 
                     box_opacity: Some(match item.state {
                         State::Alive => 1.,

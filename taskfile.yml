@@ -4,4 +4,4 @@ tasks:
   run:
     cmds:
       - systemctl stop --user mako.service
-      - RUST_LOG=debug cargo run
+      - RUST_LOG=emmer=debug cargo run

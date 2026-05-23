@@ -17,6 +17,7 @@ mod config;
 mod dbus;
 mod notification;
 mod ui;
+mod utils;
 
 pub enum ServerMessage {
     Dismiss(u32),

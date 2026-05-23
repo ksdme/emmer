@@ -32,7 +32,7 @@ use wayland_client::{
 
 use crate::{
     config::{ComputedConfig, Config, Insets, SpreadConfig, StackConfig, ThemeConfig},
-    notification,
+    logged, notification,
     ui::items::{LayoutMode, Stack},
 };
 
@@ -224,7 +224,7 @@ impl CompositorHandler for App {
         _time: u32,
     ) {
         log::trace!(target: "emmer::wl::compositor", "frame");
-        self.draw().context("Could not draw frame").unwrap();
+        let _ = logged!(self.draw().context("Could not draw frame"));
     }
 
     fn surface_enter(
@@ -276,7 +276,7 @@ impl LayerShellHandler for App {
         layer.set_size(self.width as u32, self.height as u32);
         layer.commit();
 
-        self.draw().context("Could not draw frame").unwrap();
+        let _ = logged!(self.draw().context("Could not draw frame"));
     }
 }
 delegate_layer!(App);
@@ -308,19 +308,19 @@ impl PointerHandler for App {
                 } => {
                     log::trace!(target: "emmer::wl::pointer", "frame release");
                     if button == BTN_RIGHT {
-                        self.dismiss((e.position.0 as f32, e.position.1 as f32))
-                            .unwrap();
+                        let _ = logged!(self.dismiss((e.position.0 as f32, e.position.1 as f32)));
                         break;
                     }
                 }
                 smithay_client_toolkit::seat::pointer::PointerEventKind::Enter { serial: _ } => {
-                    log::trace!(target: "emmer::wl::pointer", "frame expanding");
-                    self.set_mode(LayoutMode::Spread).unwrap();
+                    log::trace!(target: "emmer::wl::pointer", "switched to spread");
+                    let _ = logged!(self.set_mode(LayoutMode::Spread));
                     break;
                 }
                 smithay_client_toolkit::seat::pointer::PointerEventKind::Leave { serial: _ } => {
-                    log::trace!(target: "emmer::wl::pointer", "frame contracting");
-                    self.set_mode(LayoutMode::Stacked).unwrap();
+                    log::trace!(target: "emmer::wl::pointer", "switching to stacked");
+                    let _ = logged!(self.set_mode(LayoutMode::Stacked));
+
                     break;
                 }
                 _ => {}
@@ -354,12 +354,9 @@ impl SeatHandler for App {
         log::debug!(target: "emmer::wl::seat", "new_capability: {capability:?}");
 
         if capability == Capability::Pointer {
-            self.pointer = Some(
-                self.seat_state
-                    .get_pointer(qh, &seat)
-                    .context("Could not get_pointer")
-                    .unwrap(),
-            );
+            if let Ok(pointer) = logged!(self.seat_state.get_pointer(qh, &seat)) {
+                self.pointer = Some(pointer);
+            };
         }
     }
 
@@ -427,9 +424,9 @@ impl App {
 
         let seat_state = SeatState::new(&globals, &q_handle);
 
-        let shm = Shm::bind(&globals, &q_handle).expect("wl_shm");
+        let shm = Shm::bind(&globals, &q_handle).context("Could not bind shm")?;
         let buffer_pool = BufferPool::new(&shm, w as i32, w as i32 * 4, h as i32, Format::Argb8888)
-            .expect("wl_shm_pool");
+            .context("Could not create buffer pool")?;
 
         Ok((
             App {

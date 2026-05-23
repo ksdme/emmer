@@ -1,16 +1,8 @@
-use std::{
-    future::pending,
-    sync::{self, atomic::AtomicU32},
-    thread,
-};
+use std::{future::pending, thread};
 
 use anyhow::{Context, Result, anyhow};
-use log::{debug, error, warn};
 use smithay_client_toolkit::reexports::{
-    calloop::{
-        self, EventLoop,
-        channel::{self, channel},
-    },
+    calloop::{self, EventLoop, channel},
     calloop_wayland_source::WaylandSource,
 };
 use wayland_client::Connection;
@@ -83,13 +75,13 @@ fn run_ui(rx: channel::Channel<UIMessage>) -> Result<()> {
         .handle()
         .insert_source(rx, move |event, _, app| match event {
             channel::Event::Msg(msg) => {
-                debug!(target: "uiloop", "received event {msg:?}");
+                log::debug!("received event {msg:?}");
                 if let Err(err) = app.handle(msg).context("Could not process event") {
-                    error!(target: "uiloop", "could not process event: {err}");
+                    log::error!("could not process event: {err}");
                 }
             }
             channel::Event::Closed => {
-                warn!(target: "uiloop", "channel closed");
+                log::warn!("channel closed");
             }
         })
         .map_err(|err| anyhow!("Could not insert external events channel: {err}"))?;

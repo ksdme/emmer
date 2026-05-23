@@ -92,7 +92,7 @@ pub fn draw_block(config: &Block, canvas: &Canvas, x: f32, y: f32, w: f32, h: f3
     let mut fill_paint = Paint::default();
     canvas.draw_path(
         &path,
-        &fill_paint
+        fill_paint
             .set_style(PaintStyle::Fill)
             .set_color(colors::scaled_alpha(config.bg, opacity))
             .set_anti_alias(anti_alias),
@@ -103,7 +103,7 @@ pub fn draw_block(config: &Block, canvas: &Canvas, x: f32, y: f32, w: f32, h: f3
         let mut border_paint = Paint::default();
         canvas.draw_path(
             &path,
-            &border_paint
+            border_paint
                 .set_style(PaintStyle::Stroke)
                 .set_anti_alias(true)
                 .set_stroke(true)

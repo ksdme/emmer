@@ -1,7 +1,5 @@
 use std::time::{Duration, Instant};
 
-use log::{debug, info};
-
 use crate::{
     config::ComputedConfig,
     notification::Notification,
@@ -38,7 +36,7 @@ impl Stack {
 
     pub fn set_mode(&mut self, config: &ComputedConfig, mode: LayoutMode) {
         self.layout_mode = mode;
-        info!(target: "stack", "set_mode: {:?}", &self.layout_mode);
+        log::info!("set_mode: {:?}", &self.layout_mode);
 
         self.layout(config);
     }
@@ -47,6 +45,7 @@ impl Stack {
     /// Push a new item on the stack.
     pub fn push(&mut self, config: &ComputedConfig, notification: Notification) {
         let mut item = Item::new(config, notification);
+        log::info!("push: {:?}", &item.id());
 
         let (_, h) = item.size(config);
         item.set_style(Style {
@@ -57,13 +56,11 @@ impl Stack {
             },
 
             w: config.width,
-            h: h,
+            h,
 
             box_opacity: 1.,
             text_opacity: 1.,
         });
-
-        info!(target: "stack", "push: {:?}", &item.id());
         self.items.insert(0, item);
 
         self.layout(config);
@@ -81,10 +78,10 @@ impl Stack {
         });
 
         if let Some(item) = item {
-            info!(target: "stack", "dismissing: {:?}", &item.id());
+            log::info!("dismissing: {:?}", &item.id());
             item.state = State::Dismissed;
         } else {
-            info!(target: "stack", "dismiss item not resolved");
+            log::info!("dismissed item not found");
         }
 
         self.layout(config);
@@ -121,7 +118,7 @@ impl Stack {
     }
 
     fn layout_spread(&mut self, config: &ComputedConfig, now: Instant) {
-        debug!(target: "stack", "re-layout in spread mode");
+        log::debug!("re-layout in spread mode");
 
         let mut no = 0;
         let mut top_y = config.margin.y;
@@ -189,7 +186,7 @@ impl Stack {
     }
 
     pub fn layout_stack(&mut self, config: &ComputedConfig, now: Instant) {
-        debug!(target: "stack", "re-layout in stack mode");
+        log::debug!("re-layout in stack mode");
 
         let mut no = 0;
         let mut top_y = config.margin.y;

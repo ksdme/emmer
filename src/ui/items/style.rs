@@ -22,17 +22,17 @@ impl Style {
     }
 }
 
-impl Into<PartialStyle> for Style {
-    fn into(self) -> PartialStyle {
+impl From<Style> for PartialStyle {
+    fn from(val: Style) -> Self {
         PartialStyle {
-            w: Some(self.w),
-            h: Some(self.h),
+            w: Some(val.w),
+            h: Some(val.h),
 
-            x: Some(self.x),
-            y: Some(self.y),
+            x: Some(val.x),
+            y: Some(val.y),
 
-            box_opacity: Some(self.box_opacity),
-            text_opacity: Some(self.text_opacity),
+            box_opacity: Some(val.box_opacity),
+            text_opacity: Some(val.text_opacity),
         }
     }
 }
@@ -77,7 +77,7 @@ impl Transition {
     /// Returns a new transition to target_state with a shared clock.
     pub fn new(duration: Duration, to: PartialStyle, start_at: Option<Instant>) -> Self {
         Self {
-            start_at: start_at.unwrap_or_else(|| Instant::now()),
+            start_at: start_at.unwrap_or_else(Instant::now),
             duration,
 
             from: None,

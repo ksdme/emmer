@@ -1,5 +1,4 @@
 use anyhow::{Context, Result};
-use log::{debug, trace};
 use skia_safe::{ImageInfo, surfaces};
 use smithay_client_toolkit::{
     compositor::{CompositorHandler, CompositorState},
@@ -22,7 +21,7 @@ use smithay_client_toolkit::{
     },
 };
 use wayland_client::{
-    Connection, EventQueue, Proxy, QueueHandle,
+    Connection, EventQueue, QueueHandle,
     globals::registry_queue_init,
     protocol::{
         wl_pointer::WlPointer,
@@ -127,7 +126,7 @@ impl<const N: usize> BufferPool<N> {
             .buffers
             .iter_mut()
             .find(|i| !i.0.has_active_buffers())
-            .and_then(|(_, buffer)| Some((buffer.canvas(&mut self.pool), buffer)))
+            .map(|(_, buffer)| (buffer.canvas(&mut self.pool), buffer))
             .and_then(|(byts, buffer)| byts.map(|byts| (buffer, byts)));
 
         if let Some((buffer, byts)) = buffer {
@@ -173,7 +172,7 @@ impl OutputHandler for App {
         _qh: &wayland_client::QueueHandle<Self>,
         output: wayland_client::protocol::wl_output::WlOutput,
     ) {
-        debug!(target: "wl_output", "new_output ({:?})", output.id());
+        log::debug!(target: "emmer::wl::output", "new_output: {output:?}");
     }
 
     fn update_output(
@@ -182,7 +181,7 @@ impl OutputHandler for App {
         _qh: &wayland_client::QueueHandle<Self>,
         _output: wayland_client::protocol::wl_output::WlOutput,
     ) {
-        debug!(target: "wl_output", "update_output");
+        log::debug!(target: "emmer::wl::output", "update_output");
     }
 
     fn output_destroyed(
@@ -191,7 +190,7 @@ impl OutputHandler for App {
         _qh: &wayland_client::QueueHandle<Self>,
         _output: wayland_client::protocol::wl_output::WlOutput,
     ) {
-        debug!(target: "wl_output", "output_destroyed");
+        log::debug!(target: "emmer::wl::output", "output_destroyed");
     }
 }
 delegate_output!(App);
@@ -204,7 +203,7 @@ impl CompositorHandler for App {
         _surface: &wayland_client::protocol::wl_surface::WlSurface,
         _new_factor: i32,
     ) {
-        debug!(target: "wl_compositor", "scale_factor_changed");
+        log::debug!(target: "emmer::wl::compositor", "scale_factor_changed");
     }
 
     fn transform_changed(
@@ -214,7 +213,7 @@ impl CompositorHandler for App {
         _surface: &wayland_client::protocol::wl_surface::WlSurface,
         _new_transform: wayland_client::protocol::wl_output::Transform,
     ) {
-        debug!(target: "wl_compositor", "transform_changed");
+        log::debug!(target: "emmer::wl::compositor", "transform_changed");
     }
 
     fn frame(
@@ -224,7 +223,7 @@ impl CompositorHandler for App {
         _wl_surface: &wayland_client::protocol::wl_surface::WlSurface,
         _time: u32,
     ) {
-        trace!(target: "wl_compositor", "frame");
+        log::trace!(target: "emmer::wl::compositor", "frame");
         self.draw().context("Could not draw frame").unwrap();
     }
 
@@ -235,7 +234,7 @@ impl CompositorHandler for App {
         _surface: &wayland_client::protocol::wl_surface::WlSurface,
         _output: &wayland_client::protocol::wl_output::WlOutput,
     ) {
-        debug!(target: "wl_compositor", "surface_enter");
+        log::debug!(target: "emmer::wl::compositor", "surface_enter");
     }
 
     fn surface_leave(
@@ -245,7 +244,7 @@ impl CompositorHandler for App {
         _surface: &wayland_client::protocol::wl_surface::WlSurface,
         _output: &wayland_client::protocol::wl_output::WlOutput,
     ) {
-        debug!(target: "wl_compositor", "surface_leave");
+        log::debug!(target: "emmer::wl::compositor", "surface_leave");
     }
 }
 delegate_compositor!(App);
@@ -257,7 +256,7 @@ impl LayerShellHandler for App {
         _qh: &wayland_client::QueueHandle<Self>,
         _layer: &smithay_client_toolkit::shell::wlr_layer::LayerSurface,
     ) {
-        debug!(target: "wl_layer_shell_handler", "closed");
+        log::debug!(target: "emmer::wl::layer_shell", "closed");
     }
 
     fn configure(
@@ -268,7 +267,7 @@ impl LayerShellHandler for App {
         _configure: smithay_client_toolkit::shell::wlr_layer::LayerSurfaceConfigure,
         _serial: u32,
     ) {
-        debug!(target: "wl_layer_shell_handler", "configure");
+        log::debug!(target: "emmer::wl::layer_shell", "configure");
 
         self.width = 128 * 3;
         self.height = 128 * 6;
@@ -284,7 +283,7 @@ delegate_layer!(App);
 
 impl ShmHandler for App {
     fn shm_state(&mut self) -> &mut Shm {
-        debug!(target: "wl_shm", "shm_state");
+        log::debug!(target: "emmer::wl::shm", "shm_state");
         &mut self.shm
     }
 }
@@ -298,7 +297,7 @@ impl PointerHandler for App {
         _pointer: &wayland_client::protocol::wl_pointer::WlPointer,
         events: &[smithay_client_toolkit::seat::pointer::PointerEvent],
     ) {
-        trace!(target: "wl_pointer", "frame");
+        log::trace!(target: "emmer::wl::pointer", "shm_state");
 
         for e in events {
             match e.kind {
@@ -307,7 +306,7 @@ impl PointerHandler for App {
                     button,
                     serial: _,
                 } => {
-                    trace!("wl_pointer: frame click");
+                    log::trace!(target: "emmer::wl::pointer", "frame release");
                     if button == BTN_RIGHT {
                         self.dismiss((e.position.0 as f32, e.position.1 as f32))
                             .unwrap();
@@ -315,12 +314,12 @@ impl PointerHandler for App {
                     }
                 }
                 smithay_client_toolkit::seat::pointer::PointerEventKind::Enter { serial: _ } => {
-                    trace!("wl_pointer: frame expanding");
+                    log::trace!(target: "emmer::wl::pointer", "frame expanding");
                     self.set_mode(LayoutMode::Spread).unwrap();
                     break;
                 }
                 smithay_client_toolkit::seat::pointer::PointerEventKind::Leave { serial: _ } => {
-                    trace!("wl_pointer: frame contracting");
+                    log::trace!(target: "emmer::wl::pointer", "frame contracting");
                     self.set_mode(LayoutMode::Stacked).unwrap();
                     break;
                 }
@@ -342,7 +341,7 @@ impl SeatHandler for App {
         _qh: &wayland_client::QueueHandle<Self>,
         seat: wl_seat::WlSeat,
     ) {
-        debug!(target: "wl_seat", "new_seat ({:?})", seat.id());
+        log::debug!(target: "emmer::wl::seat", "new_seat: {seat:?}");
     }
 
     fn new_capability(
@@ -352,18 +351,15 @@ impl SeatHandler for App {
         seat: wl_seat::WlSeat,
         capability: smithay_client_toolkit::seat::Capability,
     ) {
-        debug!(target: "wl_seat", "new_capability ({:?})", capability);
+        log::debug!(target: "emmer::wl::seat", "new_capability: {capability:?}");
 
-        match capability {
-            Capability::Pointer => {
-                self.pointer = Some(
-                    self.seat_state
-                        .get_pointer(qh, &seat)
-                        .context("Could not get_pointer")
-                        .unwrap(),
-                );
-            }
-            _ => {}
+        if capability == Capability::Pointer {
+            self.pointer = Some(
+                self.seat_state
+                    .get_pointer(qh, &seat)
+                    .context("Could not get_pointer")
+                    .unwrap(),
+            );
         }
     }
 
@@ -374,7 +370,7 @@ impl SeatHandler for App {
         _seat: wl_seat::WlSeat,
         capability: smithay_client_toolkit::seat::Capability,
     ) {
-        debug!(target: "wl_seat", "remove_capability ({:?})", capability);
+        log::debug!(target: "emmer::wl::seat", "remove_capability: {capability:?}");
     }
 
     fn remove_seat(
@@ -383,7 +379,7 @@ impl SeatHandler for App {
         _qh: &wayland_client::QueueHandle<Self>,
         seat: wl_seat::WlSeat,
     ) {
-        debug!(target: "wl_seat", "remove_seat ({:?})", seat.id());
+        log::debug!(target: "emmer::wl::seat", "remove_seat: {seat:?}");
     }
 }
 delegate_seat!(App);
@@ -489,7 +485,7 @@ impl App {
             .context("Could not get buffer from pool")?;
 
         let Some((frame_buffer, canvas)) = buffer else {
-            debug!("Dropping frame: Could not acquire a buffer");
+            log::debug!("dropping frame: could not acquire a buffer");
             wl_surface.frame(&self.queue_handle, wl_surface.clone());
             wl_surface.commit();
             return Ok(());
@@ -515,7 +511,6 @@ impl App {
 
         wl_surface.damage_buffer(0, 0, self.width, self.height);
         if request_callback {
-            trace!(target: "draw", "requesting another frame");
             wl_surface.frame(&self.queue_handle, wl_surface.clone());
         }
 

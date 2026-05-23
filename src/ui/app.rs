@@ -16,12 +16,19 @@ use smithay_client_toolkit::{
         WaylandSurface,
         wlr_layer::{Anchor, Layer, LayerShell, LayerShellHandler, LayerSurface},
     },
-    shm::{Shm, ShmHandler, slot::SlotPool},
+    shm::{
+        Shm, ShmHandler,
+        slot::{Buffer, Slot, SlotPool},
+    },
 };
 use wayland_client::{
     Connection, EventQueue, Proxy, QueueHandle,
     globals::registry_queue_init,
-    protocol::{wl_pointer::WlPointer, wl_seat, wl_shm::Format},
+    protocol::{
+        wl_pointer::WlPointer,
+        wl_seat,
+        wl_shm::{self, Format},
+    },
 };
 
 use crate::{
@@ -29,6 +36,107 @@ use crate::{
     notification,
     ui::items::{LayoutMode, Stack},
 };
+
+#[derive(Debug)]
+struct BufferPool<const N: usize> {
+    pool: SlotPool,
+    buffers: Vec<(Slot, Buffer)>,
+
+    width: i32,
+    height: i32,
+    stride: i32,
+    format: wl_shm::Format,
+}
+
+impl<const N: usize> BufferPool<N> {
+    pub fn new(
+        shm: &Shm,
+        width: i32,
+        stride: i32,
+        height: i32,
+        format: wl_shm::Format,
+    ) -> Result<Self> {
+        let mut buffer_pool = Self {
+            pool: SlotPool::new(1024 * 1024, shm).context("Could not create slot pool")?,
+            buffers: Vec::with_capacity(N),
+
+            width,
+            height,
+            stride,
+            format,
+        };
+
+        buffer_pool
+            .ensure_buffers(width, stride, height, format)
+            .context("Could not init buffer pool")?;
+
+        Ok(buffer_pool)
+    }
+
+    fn ensure_buffers(
+        &mut self,
+        width: i32,
+        stride: i32,
+        height: i32,
+        format: wl_shm::Format,
+    ) -> Result<()> {
+        if self.width == width
+            && self.height == height
+            && self.stride == stride
+            && self.format == format
+            && !self.buffers.is_empty()
+        {
+            return Ok(());
+        }
+
+        let mut buffers = vec![];
+        for _ in 0..N {
+            let slot = self
+                .pool
+                .new_slot(height as usize * stride as usize)
+                .context("Could not create slot")?;
+
+            let buffer = self
+                .pool
+                .create_buffer_in(&slot, width, height, stride, format)
+                .context("Could not create buffer in slot")?;
+
+            buffers.push((slot, buffer));
+        }
+
+        self.buffers = buffers;
+        self.width = width;
+        self.height = height;
+        self.stride = stride;
+        self.format = format;
+
+        Ok(())
+    }
+
+    pub fn get(
+        &mut self,
+        width: i32,
+        stride: i32,
+        height: i32,
+        format: wl_shm::Format,
+    ) -> Result<Option<(&Buffer, &mut [u8])>> {
+        self.ensure_buffers(width, stride, height, format)
+            .context("Could not ensure buffers")?;
+
+        let buffer = self
+            .buffers
+            .iter_mut()
+            .find(|i| !i.0.has_active_buffers())
+            .and_then(|(_, buffer)| Some((buffer.canvas(&mut self.pool), buffer)))
+            .and_then(|(byts, buffer)| byts.map(|byts| (buffer, byts)));
+
+        if let Some((buffer, byts)) = buffer {
+            Ok(Some((buffer, byts)))
+        } else {
+            Ok(None)
+        }
+    }
+}
 
 /// The top level Wayland client.
 pub struct App {
@@ -43,7 +151,7 @@ pub struct App {
     pointer: Option<WlPointer>,
 
     shm: Shm,
-    slot_pool: SlotPool,
+    buffer_pool: BufferPool<3>,
 
     // TODO: For some reason, both cairo and smithay expect i32 for dimensions.
     width: i32,
@@ -315,16 +423,17 @@ impl App {
         );
 
         // TODO: This size needs to be a sensible size somehow.
-        layer_surface.set_size(256, 256);
+        let (w, h) = (256, 256);
+        layer_surface.set_size(w, h);
         layer_surface.set_anchor(Anchor::TOP | Anchor::RIGHT);
         layer_surface.commit();
-
         surface.commit();
 
         let seat_state = SeatState::new(&globals, &q_handle);
 
         let shm = Shm::bind(&globals, &q_handle).expect("wl_shm");
-        let slot_pool = SlotPool::new(128 * 64, &shm).expect("wl_shm_pool");
+        let buffer_pool = BufferPool::new(&shm, w as i32, w as i32 * 4, h as i32, Format::Argb8888)
+            .expect("wl_shm_pool");
 
         Ok((
             App {
@@ -339,7 +448,7 @@ impl App {
                 pointer: None,
 
                 shm,
-                slot_pool,
+                buffer_pool,
 
                 width: 0,
                 height: 0,
@@ -370,14 +479,26 @@ impl App {
 
 impl App {
     pub fn draw(&mut self) -> Result<()> {
+        let wl_surface = self.layer_surface.wl_surface();
+
+        // Try acquiring a buffer and if we can't find one, queue another draw call
+        // and skip this frame.
+        let buffer = self
+            .buffer_pool
+            .get(self.width, self.width * 4, self.height, Format::Argb8888)
+            .context("Could not get buffer from pool")?;
+
+        let Some((frame_buffer, canvas)) = buffer else {
+            debug!("Dropping frame: Could not acquire a buffer");
+            wl_surface.frame(&self.queue_handle, wl_surface.clone());
+            wl_surface.commit();
+            return Ok(());
+        };
+
+        // Render to a skia surface.
         let mut surface = surfaces::raster_n32_premul((self.width, self.height))
             .context("Could not create skia surface")?;
-
         let request_callback = self.stack.draw(&self.config, surface.canvas());
-        let (frame_buffer, canvas) = self
-            .slot_pool
-            .create_buffer(self.width, self.height, self.width * 4, Format::Argb8888)
-            .context("Could not create buffer on pool")?;
 
         let image_info = ImageInfo::new_n32_premul((surface.width(), surface.height()), None);
         surface.read_pixels(
@@ -387,7 +508,7 @@ impl App {
             (0, 0),
         );
 
-        let wl_surface = self.layer_surface.wl_surface();
+        // Request an update to the frame.
         frame_buffer
             .attach_to(wl_surface)
             .context("Could not attach buffer")?;

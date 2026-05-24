@@ -77,9 +77,7 @@ fn run_ui(rx: channel::Channel<UIMessage>) -> Result<()> {
         .insert_source(rx, move |event, _, app| match event {
             channel::Event::Msg(msg) => {
                 log::debug!("received event {msg:?}");
-                if let Err(err) = app.handle(msg).context("Could not process event") {
-                    log::error!("could not process event: {err}");
-                }
+                let _ = logged!(app.handle(msg).context("Could not process event"));
             }
             channel::Event::Closed => {
                 log::warn!("channel closed");

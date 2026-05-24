@@ -20,7 +20,7 @@ use smithay_client_toolkit::{
 use wayland_client::{
     Connection, EventQueue, QueueHandle,
     globals::registry_queue_init,
-    protocol::{wl_pointer::WlPointer, wl_seat, wl_shm::Format},
+    protocol::{wl_pointer::WlPointer, wl_seat, wl_shm},
 };
 
 use crate::{
@@ -45,9 +45,8 @@ pub struct App {
     pointer: Option<WlPointer>,
 
     shm: Shm,
-    buffer_pool: BufferPool<3>,
+    buffer_pool: Option<BufferPool<3>>,
 
-    // TODO: For some reason, both cairo and smithay expect i32 for dimensions.
     width: i32,
     height: i32,
 
@@ -126,10 +125,11 @@ impl CompositorHandler for App {
         &mut self,
         _conn: &Connection,
         _qh: &wayland_client::QueueHandle<Self>,
-        _surface: &wayland_client::protocol::wl_surface::WlSurface,
-        _output: &wayland_client::protocol::wl_output::WlOutput,
+        surface: &wayland_client::protocol::wl_surface::WlSurface,
+        output: &wayland_client::protocol::wl_output::WlOutput,
     ) {
         log::debug!(target: "emmer::wl::compositor", "surface_enter");
+        dbg!(surface, output);
     }
 
     fn surface_leave(
@@ -159,17 +159,26 @@ impl LayerShellHandler for App {
         _conn: &Connection,
         _qh: &wayland_client::QueueHandle<Self>,
         layer: &smithay_client_toolkit::shell::wlr_layer::LayerSurface,
-        _configure: smithay_client_toolkit::shell::wlr_layer::LayerSurfaceConfigure,
+        configure: smithay_client_toolkit::shell::wlr_layer::LayerSurfaceConfigure,
         _serial: u32,
     ) {
         log::debug!(target: "emmer::wl::layer_shell", "configure");
 
-        self.width = 128 * 3;
-        self.height = 128 * 6;
+        let (w, h) = configure.new_size;
+        self.width = w as i32;
+        self.height = h as i32;
 
-        // Setup size.
-        layer.set_size(self.width as u32, self.height as u32);
+        // FIXME: Because we do not refresh render caches, accepting lower widths will
+        // cause visual artifacts.
+        layer.set_size(w, h);
         layer.commit();
+
+        // Update the buffer pool.
+        self.buffer_pool = logged!(
+            BufferPool::new(&self.shm, w, w * 4, h, wl_shm::Format::Argb8888,)
+                .context("Could not initialize buffer pool")
+        )
+        .ok();
 
         let _ = logged!(self.draw().context("Could not draw frame"));
     }
@@ -289,6 +298,24 @@ delegate_registry!(App);
 impl App {
     /// Initialize the app using a wayland connection.
     pub fn init(conn: &Connection) -> Result<(Self, EventQueue<Self>)> {
+        let config = ComputedConfig::from(Config {
+            margin: Insets { x: 32., y: 32. },
+            padding: Insets { x: 12., y: 12. },
+            spread: SpreadConfig {
+                gap: 8.,
+                max_count: 20,
+            },
+            stack: StackConfig {
+                peek: 8.,
+                inset: 8.,
+                max_count: 3,
+            },
+            theme: ThemeConfig {
+                font_family: "Ubuntu".into(),
+            },
+            width: 320.,
+        });
+
         let (globals, event_queue) =
             registry_queue_init::<Self>(conn).context("Could not create wayland queue")?;
         let q_handle = event_queue.handle();
@@ -310,18 +337,15 @@ impl App {
             None,
         );
 
-        // TODO: This size needs to be a sensible size somehow.
-        let (w, h) = (256, 256);
-        layer_surface.set_size(w, h);
-        layer_surface.set_anchor(Anchor::TOP | Anchor::RIGHT);
+        let (w, h) = (config.width, 0);
+        layer_surface.set_anchor(Anchor::TOP | Anchor::BOTTOM | Anchor::RIGHT);
+        layer_surface.set_size(w as u32, h);
+
         layer_surface.commit();
         surface.commit();
 
         let seat_state = SeatState::new(&globals, &q_handle);
-
         let shm = Shm::bind(&globals, &q_handle).context("Could not bind shm")?;
-        let buffer_pool = BufferPool::new(&shm, w as i32, w as i32 * 4, h as i32, Format::Argb8888)
-            .context("Could not create buffer pool")?;
 
         Ok((
             App {
@@ -336,29 +360,13 @@ impl App {
                 pointer: None,
 
                 shm,
-                buffer_pool,
+                buffer_pool: None,
 
                 width: 0,
                 height: 0,
 
                 stack: Stack::new(),
-                config: ComputedConfig::from(Config {
-                    margin: Insets { x: 32., y: 32. },
-                    padding: Insets { x: 12., y: 12. },
-                    spread: SpreadConfig {
-                        gap: 8.,
-                        max_count: 8,
-                    },
-                    stack: StackConfig {
-                        peek: 8.,
-                        inset: 8.,
-                        max_count: 3,
-                    },
-                    theme: ThemeConfig {
-                        font_family: "Ubuntu".into(),
-                    },
-                    width: 320.,
-                }),
+                config,
             },
             event_queue,
         ))
@@ -373,7 +381,9 @@ impl App {
         // and skip this frame.
         let buffer = self
             .buffer_pool
-            .get(self.width, self.width * 4, self.height, Format::Argb8888)
+            .as_mut()
+            .context("BufferPool unavailable")?
+            .get()
             .context("Could not get buffer from pool")?;
 
         let Some((frame_buffer, canvas)) = buffer else {

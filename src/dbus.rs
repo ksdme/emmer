@@ -2,9 +2,14 @@ use std::sync::atomic::AtomicU32;
 
 use log::error;
 use smithay_client_toolkit::reexports::calloop::channel::{self};
-use zbus::{interface, zvariant};
+use zbus::{interface, object_server::SignalEmitter, zvariant};
 
 use crate::{UIMessage, notification::Notification};
+
+// Represents a message from the UI thread to the server thread.
+pub enum ServerMessage {
+    Dismiss(u32),
+}
 
 /// A dbus service for handling notification messages.
 pub struct NotificationService {
@@ -53,7 +58,7 @@ impl NotificationService {
         })) {
             // TODO: How else to handle the error?
             Err(err) => {
-                error!(target: "zbusloop", "could not send push message: {err}");
+                error!("could not send push message: {err}");
                 0
             }
             Ok(_) => id,
@@ -61,10 +66,18 @@ impl NotificationService {
     }
 
     fn get_capabilities(&self) -> Vec<String> {
-        vec!["body".into()]
+        vec!["body".into(), "actions".into()]
     }
 
     fn get_server_information(&self) -> (String, String, String, String) {
         ("emmer".into(), "me".into(), "1.0".into(), "1.2".into())
     }
+
+    /// A completed notification is one that has timed out, or has been dismissed by the user.
+    #[zbus(signal)]
+    pub async fn notification_closed(
+        signal_emitter: &SignalEmitter<'_>,
+        id: u32,
+        reason: u32,
+    ) -> zbus::Result<()>;
 }

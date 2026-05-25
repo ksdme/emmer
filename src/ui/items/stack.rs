@@ -1,4 +1,7 @@
-use std::time::{Duration, Instant};
+use std::{
+    collections::{BTreeMap, HashSet},
+    time::{Duration, Instant},
+};
 
 use skia_safe::{Contains, Point, Rect};
 
@@ -21,7 +24,7 @@ pub enum LayoutMode {
 pub struct Stack {
     // TODO: Switch to something more efficient like a linked list.
     // We need pushing to the top and efficient removal from middle.
-    items: Vec<Item>,
+    items: BTreeMap<u32, Item>,
 
     // The layout mode the stack is currently rendering in.
     layout_mode: LayoutMode,
@@ -30,15 +33,30 @@ pub struct Stack {
 impl Stack {
     pub fn new() -> Self {
         Self {
-            items: vec![],
+            items: BTreeMap::new(),
 
             layout_mode: LayoutMode::Stacked,
         }
     }
 
+    // Finds an item that is at (x, y) position.
+    pub fn find_at(&self, at: (f32, f32)) -> Option<u32> {
+        self.items
+            .values()
+            .into_iter()
+            .find(|el| {
+                if let Some(hitbox) = el.hitbox() {
+                    hitbox.contains(Point::from(at))
+                } else {
+                    false
+                }
+            })
+            .map(|el| el.id())
+    }
+
     pub fn set_mode(&mut self, config: &ComputedConfig, mode: LayoutMode) {
+        log::info!("set_mode: {:?}", mode);
         self.layout_mode = mode;
-        log::info!("set_mode: {:?}", &self.layout_mode);
 
         self.layout(config);
     }
@@ -46,8 +64,8 @@ impl Stack {
     // TODO: Lock the items.
     /// Push a new item on the stack.
     pub fn push(&mut self, config: &ComputedConfig, notification: Notification) {
+        log::info!("push: {:?}", notification.id);
         let mut item = Item::new(config, notification);
-        log::info!("push: {:?}", &item.id());
 
         let (_, h) = item.content_size(config);
         item.set_style(Style {
@@ -63,27 +81,21 @@ impl Stack {
             box_opacity: 1.,
             text_opacity: 1.,
         });
-        self.items.insert(0, item);
 
+        self.items.insert(item.id(), item);
         self.layout(config);
     }
 
     // TODO: Lock the items.
     /// Remove an item from the stack.
-    pub fn dismiss(&mut self, config: &ComputedConfig, at: (f32, f32)) {
-        let item = self.items.iter_mut().find(|item| match item.hitbox() {
-            Some(rect) => rect.contains(Point::from(at)),
-            None => false,
-        });
-
-        if let Some(item) = item {
-            log::info!("dismissing: {:?}", &item.id());
-            item.state = State::Dismissed;
-        } else {
-            log::info!("dismissed item not found");
-        }
+    pub fn dismiss(&mut self, config: &ComputedConfig, id: u32) -> Option<()> {
+        let item = self.items.get_mut(&id)?;
+        // We need to drive the transition to completion before we can remove
+        // the item from memory.
+        item.state = State::Dismissed;
 
         self.layout(config);
+        Some(())
     }
 
     // Renders the stack to the skia canvas and returns a bool indicating if all the item transitions
@@ -92,26 +104,30 @@ impl Stack {
         let now = Instant::now();
 
         let mut settled = true;
+        let mut expired = HashSet::<u32>::new();
         let (mut x1, mut y1, mut x2, mut y2) = (0f32, 0f32, 0f32, 0f32);
 
-        for no in (0..self.items.len()).rev() {
-            if let Some(item) = self.items.get_mut(no) {
-                let item_settled = item.tick(&now);
+        for (id, item) in self.items.iter_mut() {
+            let item_settled = item.tick(&now);
 
-                let rect = item.render(config, canvas);
-                x1 = x1.min(rect.left());
-                y1 = y1.min(rect.top());
-                x2 = x2.max(rect.right());
-                y2 = y2.max(rect.bottom());
+            // Render and update the scene bounds.
+            let rect = item.render(config, canvas);
+            x1 = x1.min(rect.left());
+            y1 = y1.min(rect.top());
+            x2 = x2.max(rect.right());
+            y2 = y2.max(rect.bottom());
 
-                // If the item was marked as dismissed, and the transition
-                // around it has settled, then, remove it from memory.
-                if item_settled && item.state == State::Dismissed {
-                    self.items.remove(no);
-                }
-
-                settled &= item_settled;
+            // If the item was marked as dismissed, and the transition
+            // around it has settled, then, remove.
+            if item_settled && item.state == State::Dismissed {
+                expired.insert(id.clone());
             }
+
+            settled &= item_settled;
+        }
+
+        if !expired.is_empty() {
+            self.items.retain(|id, _| !expired.contains(id));
         }
 
         (settled, Rect::from_ltrb(x1, y1, x2, y2))
@@ -128,7 +144,8 @@ impl Stack {
     fn layout_spread(&mut self, config: &ComputedConfig, now: Instant) {
         let mut no = 0;
         let mut top_y = config.margin.y;
-        for item in self.items.iter_mut() {
+
+        for (_, item) in self.items.iter_mut().rev() {
             let (item_w, item_h) = item.content_size(config);
 
             // Show the first config.spread.max_count items.
@@ -194,7 +211,8 @@ impl Stack {
     pub fn layout_stack(&mut self, config: &ComputedConfig, now: Instant) {
         let mut no = 0;
         let mut top_y = config.margin.y;
-        for item in self.items.iter_mut() {
+
+        for (_, item) in self.items.iter_mut().rev() {
             let (item_w, item_h) = item.content_size(config);
 
             // Renders the first item as a regular block.

@@ -25,6 +25,7 @@ use wayland_client::{
 
 use crate::{
     config::{ComputedConfig, Config, Insets, SpreadConfig, StackConfig, ThemeConfig},
+    dbus::ServerMessage,
     logged, notification,
     ui::{
         buffers::BufferPool,
@@ -34,6 +35,7 @@ use crate::{
 
 /// The top level Wayland client.
 pub struct App {
+    server_tx: tokio::sync::mpsc::UnboundedSender<ServerMessage>,
     queue_handle: QueueHandle<Self>,
 
     registry_state: RegistryState,
@@ -259,9 +261,10 @@ impl SeatHandler for App {
         log::debug!(target: "emmer::wl::seat", "new_capability: {capability:?}");
 
         if capability == Capability::Pointer
-            && let Ok(pointer) = logged!(self.seat_state.get_pointer(qh, &seat)) {
-                self.pointer = Some(pointer);
-            };
+            && let Ok(pointer) = logged!(self.seat_state.get_pointer(qh, &seat))
+        {
+            self.pointer = Some(pointer);
+        };
     }
 
     fn remove_capability(
@@ -297,7 +300,10 @@ delegate_registry!(App);
 
 impl App {
     /// Initialize the app using a wayland connection.
-    pub fn init(conn: &Connection) -> Result<(Self, EventQueue<Self>)> {
+    pub fn init(
+        conn: &Connection,
+        server_tx: tokio::sync::mpsc::UnboundedSender<ServerMessage>,
+    ) -> Result<(Self, EventQueue<Self>)> {
         let config = ComputedConfig::from(Config {
             margin: Insets { x: 32., y: 32. },
             padding: Insets { x: 12., y: 12. },
@@ -352,6 +358,7 @@ impl App {
 
         Ok((
             App {
+                server_tx,
                 queue_handle: q_handle,
 
                 registry_state,
@@ -441,7 +448,21 @@ impl App {
     }
 
     pub fn dismiss(&mut self, at: (f32, f32)) -> Result<()> {
-        self.stack.dismiss(&self.config, at);
+        let id = self
+            .stack
+            .find_at(at)
+            .context("Could not find item to dismiss")?;
+
+        self.stack
+            .dismiss(&self.config, id)
+            .context("Could not dismiss item")?;
+
+        let _ = logged!(
+            self.server_tx
+                .send(ServerMessage::Dismiss(id))
+                .context("Could not send dismiss event to server")
+        );
+
         self.draw().context("Could not draw frame")
     }
 

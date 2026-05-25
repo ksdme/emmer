@@ -34,17 +34,16 @@ impl Default for Block {
             bg: Color::from_rgb(52, 52, 52),
             border: Some(Border {
                 color: Color::from_rgb(102, 102, 102),
-                width: 2.5,
+                width: 1.5,
             }),
-            radius: Some(8.0),
+            radius: Some(6.),
             shadow: None,
         }
     }
 }
 
-pub fn draw_block(config: &Block, canvas: &Canvas, x: f32, y: f32, w: f32, h: f32, opacity: f32) {
+pub fn draw_block(config: &Block, canvas: &Canvas, rect: &Rect, opacity: f32) {
     // The shape of the block.
-    let rect = Rect::from_xywh(x, y, w, h);
     let (path, anti_alias) = match config.radius {
         Some(r) => (
             PathBuilder::new()

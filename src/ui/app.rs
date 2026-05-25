@@ -1,7 +1,7 @@
 use anyhow::{Context, Result};
 use skia_safe::{ImageInfo, surfaces};
 use smithay_client_toolkit::{
-    compositor::{CompositorHandler, CompositorState},
+    compositor::{CompositorHandler, CompositorState, Region},
     delegate_compositor, delegate_layer, delegate_output, delegate_pointer, delegate_registry,
     delegate_seat, delegate_shm,
     output::{OutputHandler, OutputState},
@@ -38,6 +38,7 @@ pub struct App {
 
     registry_state: RegistryState,
     output_state: OutputState,
+    compositor_state: CompositorState,
 
     layer_surface: LayerSurface,
     seat_state: SeatState,
@@ -162,7 +163,7 @@ impl LayerShellHandler for App {
         configure: smithay_client_toolkit::shell::wlr_layer::LayerSurfaceConfigure,
         _serial: u32,
     ) {
-        log::debug!(target: "emmer::wl::layer_shell", "configure");
+        log::debug!(target: "emmer::wl::layer_shell", "configure: {configure:?}");
 
         let (w, h) = configure.new_size;
         self.width = w as i32;
@@ -337,9 +338,12 @@ impl App {
             None,
         );
 
-        let (w, h) = (config.width, 0);
+        let (w, h) = (config.width + 2. * config.margin.x, 0);
         layer_surface.set_anchor(Anchor::TOP | Anchor::BOTTOM | Anchor::RIGHT);
         layer_surface.set_size(w as u32, h);
+
+        let region = Region::new(&compositor_state).context("Could not create initial region")?;
+        layer_surface.set_input_region(Some(region.wl_region()));
 
         layer_surface.commit();
         surface.commit();
@@ -353,6 +357,7 @@ impl App {
 
                 registry_state,
                 output_state,
+                compositor_state,
 
                 layer_surface,
                 seat_state,
@@ -396,7 +401,7 @@ impl App {
         // Render to a skia surface.
         let mut surface = surfaces::raster_n32_premul((self.width, self.height))
             .context("Could not create skia surface")?;
-        let request_callback = self.stack.draw(&self.config, surface.canvas());
+        let (transitions_settled, bounds) = self.stack.render(&self.config, surface.canvas());
 
         let image_info = ImageInfo::new_n32_premul((surface.width(), surface.height()), None);
         surface.read_pixels(
@@ -406,13 +411,23 @@ impl App {
             (0, 0),
         );
 
+        // Update the input region.
+        let region = Region::new(&self.compositor_state).context("Could not create region")?;
+        region.add(
+            bounds.x() as i32,
+            bounds.y() as i32,
+            bounds.width() as i32,
+            (bounds.height() as i32).min(self.height),
+        );
+        wl_surface.set_input_region(Some(region.wl_region()));
+
         // Request an update to the frame.
         frame_buffer
             .attach_to(wl_surface)
             .context("Could not attach buffer")?;
 
         wl_surface.damage_buffer(0, 0, self.width, self.height);
-        if request_callback {
+        if !transitions_settled {
             wl_surface.frame(&self.queue_handle, wl_surface.clone());
         }
 

@@ -29,6 +29,8 @@ pub struct Item {
 
     style: Style,
     transitions: Vec<Transition>,
+
+    bounds: Option<Rect>,
 }
 
 impl Item {
@@ -41,6 +43,8 @@ impl Item {
 
             style: Style::default(),
             transitions: vec![],
+
+            bounds: None,
         }
     }
 
@@ -60,18 +64,16 @@ impl Item {
         self.transitions.is_empty()
     }
 
-    /// Renders the current item to a skia canvas.
-    pub fn render(&mut self, config: &ComputedConfig, canvas: &skia_safe::Canvas) {
+    /// Renders the current item to a skia canvas and returns its rect bounds.
+    pub fn render(&mut self, config: &ComputedConfig, canvas: &skia_safe::Canvas) -> &Rect {
+        let rect = Rect::from_xywh(self.style.x, self.style.y, self.style.w, self.style.h);
         block::draw_block(
             &block::Block {
                 shadow: Some(block::Shadow::SM),
                 ..Default::default()
             },
             canvas,
-            self.style.x,
-            self.style.y,
-            self.style.w,
-            self.style.h,
+            &rect,
             self.style.box_opacity,
         );
 
@@ -119,6 +121,9 @@ impl Item {
 
             canvas.restore();
         }
+
+        self.bounds = Some(rect);
+        self.bounds.as_ref().unwrap()
     }
 
     pub fn set_style(&mut self, style: Style) {
@@ -129,20 +134,15 @@ impl Item {
         self.transitions = transitions;
     }
 
-    pub fn hitbox(&self) -> Option<(f32, f32, f32, f32)> {
+    pub fn hitbox(&self) -> Option<&Rect> {
         if self.style.visible() {
-            Some((
-                self.style.x,
-                self.style.y,
-                self.style.x + self.style.w,
-                self.style.y + self.style.h,
-            ))
+            self.bounds.as_ref()
         } else {
             None
         }
     }
 
-    pub fn size(&self, config: &ComputedConfig) -> (f32, f32) {
+    pub fn content_size(&self, config: &ComputedConfig) -> (f32, f32) {
         (
             config.width,
             (2. * config.padding.y) + self.render_cache.content_height(),

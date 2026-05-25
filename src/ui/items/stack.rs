@@ -1,5 +1,7 @@
 use std::time::{Duration, Instant};
 
+use skia_safe::{Contains, Point, Rect};
+
 use crate::{
     config::ComputedConfig,
     notification::Notification,
@@ -47,7 +49,7 @@ impl Stack {
         let mut item = Item::new(config, notification);
         log::info!("push: {:?}", &item.id());
 
-        let (_, h) = item.size(config);
+        let (_, h) = item.content_size(config);
         item.set_style(Style {
             x: config.margin.x,
             y: match self.layout_mode {
@@ -70,10 +72,7 @@ impl Stack {
     /// Remove an item from the stack.
     pub fn dismiss(&mut self, config: &ComputedConfig, at: (f32, f32)) {
         let item = self.items.iter_mut().find(|item| match item.hitbox() {
-            Some((x1, y1, x2, y2)) => {
-                let (x, y) = at;
-                x >= x1 && y >= y1 && x <= x2 && y <= y2
-            }
+            Some(rect) => rect.contains(Point::from(at)),
             None => false,
         });
 
@@ -87,14 +86,23 @@ impl Stack {
         self.layout(config);
     }
 
-    pub fn draw(&mut self, config: &ComputedConfig, canvas: &skia_safe::Canvas) -> bool {
+    // Renders the stack to the skia canvas and returns a bool indicating if all the item transitions
+    // have settled and the visual bounds of the stack.
+    pub fn render(&mut self, config: &ComputedConfig, canvas: &skia_safe::Canvas) -> (bool, Rect) {
         let now = Instant::now();
 
         let mut settled = true;
+        let (mut x1, mut y1, mut x2, mut y2) = (0f32, 0f32, 0f32, 0f32);
+
         for no in (0..self.items.len()).rev() {
             if let Some(item) = self.items.get_mut(no) {
                 let item_settled = item.tick(&now);
-                item.render(config, canvas);
+
+                let rect = item.render(config, canvas);
+                x1 = x1.min(rect.left());
+                y1 = y1.min(rect.top());
+                x2 = x2.max(rect.right());
+                y2 = y2.max(rect.bottom());
 
                 // If the item was marked as dismissed, and the transition
                 // around it has settled, then, remove it from memory.
@@ -106,7 +114,7 @@ impl Stack {
             }
         }
 
-        !settled
+        (settled, Rect::from_ltrb(x1, y1, x2, y2))
     }
 
     pub fn layout(&mut self, config: &ComputedConfig) {
@@ -118,12 +126,10 @@ impl Stack {
     }
 
     fn layout_spread(&mut self, config: &ComputedConfig, now: Instant) {
-        log::debug!("re-layout in spread mode");
-
         let mut no = 0;
         let mut top_y = config.margin.y;
         for item in self.items.iter_mut() {
-            let (item_w, item_h) = item.size(config);
+            let (item_w, item_h) = item.content_size(config);
 
             // Show the first config.spread.max_count items.
             if no <= config.spread.max_count {
@@ -186,12 +192,10 @@ impl Stack {
     }
 
     pub fn layout_stack(&mut self, config: &ComputedConfig, now: Instant) {
-        log::debug!("re-layout in stack mode");
-
         let mut no = 0;
         let mut top_y = config.margin.y;
         for item in self.items.iter_mut() {
-            let (item_w, item_h) = item.size(config);
+            let (item_w, item_h) = item.content_size(config);
 
             // Renders the first item as a regular block.
             if no == 0 {

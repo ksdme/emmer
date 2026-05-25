@@ -258,11 +258,10 @@ impl SeatHandler for App {
     ) {
         log::debug!(target: "emmer::wl::seat", "new_capability: {capability:?}");
 
-        if capability == Capability::Pointer {
-            if let Ok(pointer) = logged!(self.seat_state.get_pointer(qh, &seat)) {
+        if capability == Capability::Pointer
+            && let Ok(pointer) = logged!(self.seat_state.get_pointer(qh, &seat)) {
                 self.pointer = Some(pointer);
             };
-        }
     }
 
     fn remove_capability(

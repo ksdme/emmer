@@ -5,8 +5,8 @@ pub struct Notification {
     pub id: u32,
 
     /// The title. Freedesktop calls it summary though.
-    pub summary: String,
+    pub summary: Option<String>,
 
     /// The content of the notification.
-    pub body: String,
+    pub body: Option<String>,
 }

@@ -40,8 +40,16 @@ impl NotificationService {
 
         match self.tx.send(UIMessage::Push(Notification {
             id,
-            body: body.to_string(),
-            summary: summary.to_string(),
+            summary: if summary.is_empty() {
+                None
+            } else {
+                Some(summary.to_string())
+            },
+            body: if body.is_empty() {
+                None
+            } else {
+                Some(body.to_string())
+            },
         })) {
             // TODO: How else to handle the error?
             Err(err) => {

@@ -221,12 +221,12 @@ impl PointerHandler for App {
                 }
                 smithay_client_toolkit::seat::pointer::PointerEventKind::Enter { serial: _ } => {
                     log::trace!(target: "emmer::wl::pointer", "switched to spread");
-                    let _ = logged!(self.set_mode(LayoutMode::Spread));
+                    let _ = logged!(self.set_layout_mode(LayoutMode::Spread));
                     break;
                 }
                 smithay_client_toolkit::seat::pointer::PointerEventKind::Leave { serial: _ } => {
                     log::trace!(target: "emmer::wl::pointer", "switching to stacked");
-                    let _ = logged!(self.set_mode(LayoutMode::Stacked));
+                    let _ = logged!(self.set_layout_mode(LayoutMode::Stacked));
 
                     break;
                 }
@@ -466,9 +466,13 @@ impl App {
         self.draw().context("Could not draw frame")
     }
 
-    pub fn set_mode(&mut self, mode: LayoutMode) -> Result<()> {
-        self.stack.set_mode(&self.config, mode);
-        self.draw().context("Could not draw frame")
+    pub fn set_layout_mode(&mut self, mode: LayoutMode) -> Result<()> {
+        if self.stack.layout_mode() != mode {
+            self.stack.set_layout_mode(&self.config, mode);
+            self.draw().context("Could not draw frame")
+        } else {
+            Ok(())
+        }
     }
 }
 

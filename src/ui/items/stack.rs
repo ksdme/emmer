@@ -14,7 +14,7 @@ use crate::{
     },
 };
 
-#[derive(Clone, Debug)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum LayoutMode {
     Spread,
     Stacked,
@@ -39,6 +39,10 @@ impl Stack {
         }
     }
 
+    pub fn layout_mode(&self) -> LayoutMode {
+        self.layout_mode.clone()
+    }
+
     // Finds an item that is at (x, y) position.
     pub fn find_at(&self, at: (f32, f32)) -> Option<u32> {
         self.items
@@ -54,17 +58,16 @@ impl Stack {
             .map(|el| el.id())
     }
 
-    pub fn set_mode(&mut self, config: &ComputedConfig, mode: LayoutMode) {
-        log::info!("set_mode: {:?}", mode);
+    pub fn set_layout_mode(&mut self, config: &ComputedConfig, mode: LayoutMode) {
+        log::info!("stack.set_layout_mode: {:?}", mode);
         self.layout_mode = mode;
-
         self.layout(config);
     }
 
     // TODO: Lock the items.
     /// Push a new item on the stack.
     pub fn push(&mut self, config: &ComputedConfig, notification: Notification) {
-        log::info!("push: {:?}", notification.id);
+        log::info!("stack.push: {:?}", notification.id);
         let mut item = Item::new(config, notification);
 
         let (_, h) = item.content_size(config);

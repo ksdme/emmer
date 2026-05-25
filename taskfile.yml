@@ -5,3 +5,11 @@ tasks:
     cmds:
       - systemctl stop --user mako.service
       - RUST_LOG=emmer=debug cargo run
+
+  flood:
+    cmds:
+      - |
+        for i in $(seq 1 20); do
+          notify-send "Message" "This is the body of the notification.";
+          sleep 1s;
+        done

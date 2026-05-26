@@ -29,7 +29,7 @@ use crate::{
     logged, notification,
     ui::{
         buffers::BufferPool,
-        items::{LayoutMode, Stack},
+        items::{DismissReason, LayoutMode, Stack, StackCommand},
     },
 };
 
@@ -385,6 +385,30 @@ impl App {
 }
 
 impl App {
+    // TODO: Bubble errors better(?)
+    fn handle_stack_commands(&mut self, commands: Vec<StackCommand>) -> Result<()> {
+        for command in &commands {
+            match command {
+                StackCommand::NotifyDismissed(id, reason) => {
+                    let _ = logged!(
+                        self.server_tx
+                            .send(ServerMessage::Dismiss {
+                                id: id.clone(),
+                                reason: match reason {
+                                    DismissReason::Manual => 2,
+                                    DismissReason::Expired => 1,
+                                },
+                            })
+                            .context("Could not send message to server")
+                    );
+                }
+                StackCommand::Redraw => self.draw().context("Could not draw")?,
+            }
+        }
+
+        Ok(())
+    }
+
     pub fn draw(&mut self) -> Result<()> {
         let wl_surface = self.layer_surface.wl_surface();
 
@@ -443,8 +467,9 @@ impl App {
     }
 
     pub fn push(&mut self, notification: notification::Notification) -> Result<()> {
-        self.stack.push(&self.config, notification);
-        self.draw().context("Could not draw frame")
+        let commands = self.stack.push(&self.config, notification);
+        self.handle_stack_commands(commands)
+            .context("Could not process push commands")
     }
 
     pub fn dismiss(&mut self, at: (f32, f32)) -> Result<()> {
@@ -453,26 +478,21 @@ impl App {
             .find_at(at)
             .context("Could not find item to dismiss")?;
 
-        self.stack
-            .dismiss(&self.config, id)
-            .context("Could not dismiss item")?;
+        let commands = self.stack.dismiss(&self.config, id, DismissReason::Manual);
+        self.handle_stack_commands(commands)
+            .context("Could not process dismiss commands")
+    }
 
-        let _ = logged!(
-            self.server_tx
-                .send(ServerMessage::Dismiss(id))
-                .context("Could not send dismiss event to server")
-        );
-
-        self.draw().context("Could not draw frame")
+    pub fn dismiss_expired(&mut self) -> Result<()> {
+        let commands = self.stack.dismiss_expired(&self.config);
+        self.handle_stack_commands(commands)
+            .context("Could not process expired commands")
     }
 
     pub fn set_layout_mode(&mut self, mode: LayoutMode) -> Result<()> {
-        if self.stack.layout_mode() != mode {
-            self.stack.set_layout_mode(&self.config, mode);
-            self.draw().context("Could not draw frame")
-        } else {
-            Ok(())
-        }
+        let commands = self.stack.set_layout_mode(&self.config, mode);
+        self.handle_stack_commands(commands)
+            .context("Could not process layout mode change commands")
     }
 }
 

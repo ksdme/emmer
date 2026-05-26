@@ -1,4 +1,4 @@
-use std::thread;
+use std::{thread, time::Duration};
 
 use anyhow::{Context, Result, anyhow};
 use smithay_client_toolkit::reexports::{
@@ -86,6 +86,20 @@ fn run_ui(
         .map_err(|err| anyhow!("Could not insert external events channel: {err}"))?;
 
     main_loop
+        .handle()
+        .insert_source(
+            calloop::timer::Timer::from_duration(Duration::from_secs(1)),
+            |_, _, app| {
+                let _ = logged!(
+                    app.dismiss_expired()
+                        .context("Could not dismiss expired events")
+                );
+                calloop::timer::TimeoutAction::ToDuration(Duration::from_secs(1))
+            },
+        )
+        .map_err(|err| anyhow!("Could not insert timer event source: {err}"))?;
+
+    main_loop
         .run(None, &mut app, |_| {})
         .context("Could not run the main loop")?;
 
@@ -117,10 +131,10 @@ async fn run_server(
 
     while let Some(msg) = server_rx.recv().await {
         match msg {
-            ServerMessage::Dismiss(id) => {
+            ServerMessage::Dismiss { id, reason } => {
                 // https://specifications.freedesktop.org/notification/latest/protocol.html#id-1.10.4.2.4
                 let _ = logged!(
-                    NotificationService::notification_closed(&signal_emitter, id, 2)
+                    NotificationService::notification_closed(&signal_emitter, id, reason)
                         .await
                         .context("Could not send dismiss message: {id}")
                 );

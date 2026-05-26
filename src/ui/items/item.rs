@@ -14,7 +14,7 @@ use crate::{
     },
 };
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum State {
     Alive,
     Dismissed,
@@ -22,7 +22,7 @@ pub enum State {
 
 #[derive(Debug)]
 pub struct Item {
-    pub state: State,
+    state: State,
 
     notification: Notification,
     render_cache: ItemRenderCache,
@@ -49,7 +49,7 @@ impl Item {
     }
 
     pub fn id(&self) -> u32 {
-        self.notification.id
+        self.notification.id()
     }
 
     /// Progresses the transition attached to the item if any and a boolean indicating
@@ -58,6 +58,7 @@ impl Item {
         self.transitions.retain_mut(|transition| {
             let (style, settled) = transition.interpolate(&self.style, now);
             self.style = style;
+
             !settled
         });
 
@@ -138,6 +139,14 @@ impl Item {
         self.transitions = transitions;
     }
 
+    pub fn state(&self) -> State {
+        self.state.clone()
+    }
+
+    pub fn set_state(&mut self, state: State) {
+        self.state = state;
+    }
+
     pub fn content_size(&self, config: &ComputedConfig) -> (f32, f32) {
         (
             config.width,
@@ -176,6 +185,10 @@ impl Item {
             None
         }
     }
+
+    pub fn notification(&self) -> &Notification {
+        &self.notification
+    }
 }
 
 #[derive(Debug)]
@@ -191,7 +204,7 @@ impl ItemRenderCache {
         let mut p_style = ParagraphStyle::default();
         p_style.set_max_lines(4);
 
-        let title_p = notification.summary.as_ref().map(|summary| {
+        let title_p = notification.title().map(|summary| {
             let mut title_p = ParagraphBuilder::new(&p_style, config.theme.font_collection.clone())
                 .push_style(&config.theme.title_style)
                 .add_text(summary)
@@ -201,7 +214,7 @@ impl ItemRenderCache {
             title_p
         });
 
-        let body_p = notification.body.as_ref().map(|body| {
+        let body_p = notification.body().map(|body| {
             let mut body_p = ParagraphBuilder::new(&p_style, config.theme.font_collection.clone())
                 .push_style(&config.theme.body_style)
                 .add_text(body)

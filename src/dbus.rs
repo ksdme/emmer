@@ -8,7 +8,7 @@ use crate::{UIMessage, notification::Notification};
 
 // Represents a message from the UI thread to the server thread.
 pub enum ServerMessage {
-    Dismiss(u32),
+    Dismiss { id: u32, reason: u32 },
 }
 
 /// A dbus service for handling notification messages.
@@ -37,25 +37,18 @@ impl NotificationService {
         body: &str,
         _actions: Vec<String>,
         _hints: std::collections::HashMap<String, zvariant::Value>,
-        _expire_timeout: i32,
+        expire_timeout: i32,
     ) -> u32 {
         let id = self
             .id_counter
             .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
 
-        match self.tx.send(UIMessage::Push(Notification {
+        match self.tx.send(UIMessage::Push(Notification::from_dbus_parts(
             id,
-            summary: if summary.is_empty() {
-                None
-            } else {
-                Some(summary.to_string())
-            },
-            body: if body.is_empty() {
-                None
-            } else {
-                Some(body.to_string())
-            },
-        })) {
+            summary.to_string(),
+            body.to_string(),
+            expire_timeout,
+        ))) {
             // TODO: How else to handle the error?
             Err(err) => {
                 error!("could not send push message: {err}");

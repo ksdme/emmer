@@ -1,15 +1,13 @@
-use std::time::Instant;
+use std::{f64::consts::PI, time::Instant};
 
-use skia_safe::{
-    ClipOp, Rect,
-    textlayout::{Paragraph, ParagraphBuilder, ParagraphStyle},
-};
+use anyhow::{Context, Result};
 
 use crate::{
     config::ComputedConfig,
     notification::Notification,
     ui::{
-        draw::block,
+        bounds::Rect,
+        colors::Color,
         items::style::{Style, Transition},
     },
 };
@@ -52,6 +50,10 @@ impl Item {
         self.notification.id()
     }
 
+    pub fn notification(&self) -> &Notification {
+        &self.notification
+    }
+
     /// Progresses the transition attached to the item if any and a boolean indicating
     /// if all the transitions have settled.
     pub fn tick(&mut self, now: &Instant) -> bool {
@@ -65,70 +67,96 @@ impl Item {
         self.transitions.is_empty()
     }
 
-    /// Renders the current item to a skia canvas and returns its rect bounds.
-    pub fn render(&mut self, config: &ComputedConfig, canvas: &skia_safe::Canvas) -> &Rect {
-        let rect = Rect::from_xywh(self.style.x, self.style.y, self.style.w, self.style.h);
-        block::draw_block(
-            &block::Block {
-                shadow: Some(block::Shadow::SM),
-                ..Default::default()
-            },
-            canvas,
-            &rect,
-            self.style.box_opacity,
-        );
+    /// Renders the current item to a cairo canvas and returns its rect bounds.
+    pub fn render(&mut self, config: &ComputedConfig, cx: &cairo::Context) -> Result<&Rect> {
+        let (x, y) = (self.style.x, self.style.y);
+        let (w, h) = (self.style.w, self.style.h);
 
-        if self.style.text_opacity > 0. {
-            // We do this because the text style is baked into the render cache during
-            // the object construction.
-            canvas.save_layer_alpha_f(None, self.style.text_opacity);
+        let r = Some(8.);
+        let bg = Color::from_rgba_u8(52, 52, 52, self.style.box_opacity);
+        let fg = Color::from_rgba_u8(255, 255, 255, self.style.text_opacity);
+        let border = Some((
+            1.5,
+            (Color::from_rgba_u8(102, 102, 102, self.style.box_opacity)),
+        ));
 
-            let avail_h = self.style.h - 2. * config.padding.y;
-            let content_h = self.content_height();
-            let y = if content_h > avail_h {
-                // Clip the overflowing region.
-                canvas.clip_rect(
-                    Rect::from_xywh(
-                        self.style.x + config.padding.x,
-                        self.style.y + config.padding.y,
-                        self.style.w - 2. * config.padding.x,
-                        self.style.h - 2. * config.padding.y,
-                    ),
-                    ClipOp::Intersect,
-                    false,
-                );
-
-                // Anchor the content to the bottom of the box. Since the clip is a
-                // fixed window, the easiest way to anchor is to do it during the draw.
-                // TODO: Does bottom anchoring work in all cases?
-                self.style.y + config.padding.y - (content_h - avail_h)
-            } else {
-                self.style.y + config.padding.y
-            };
-
-            // Draw the title.
-            let y = match &self.render_cache.title_p {
-                Some(title_p) => {
-                    title_p.paint(canvas, (self.style.x + config.padding.x, y));
-                    y + title_p.height() + 8.
-                }
-                None => y,
-            };
-
-            // Draw the body.
-            let _y = match &self.render_cache.body_p {
-                Some(body_p) => {
-                    body_p.paint(canvas, (self.style.x + config.padding.x, y));
-                    y + body_p.height()
-                }
-                None => y,
-            };
-
-            canvas.restore();
+        // Path of the block.
+        cx.new_path();
+        if let Some(r) = r {
+            cx.new_sub_path();
+            cx.arc(x + r, y + r, r, PI, 3.0 * PI / 2.0);
+            cx.arc(x + w - r, y + r, r, 3.0 * PI / 2.0, 2.0 * PI);
+            cx.arc(x + w - r, y + h - r, r, 0.0, PI / 2.0);
+            cx.arc(x + r, y + h - r, r, PI / 2.0, PI);
+            cx.close_path();
+        } else {
+            cx.rectangle(x, y, w, h);
         }
 
-        self.bounds = Some(rect);
-        self.bounds.as_ref().unwrap()
+        // Background.
+        cx.set_source_rgba(bg.r, bg.g, bg.b, bg.a);
+        cx.fill_preserve()
+            .context("Could not fill shape on main surface")?;
+
+        // Add the border.
+        if let Some((width, color)) = border {
+            cx.set_line_width(width);
+            cx.set_source_rgba(color.r, color.g, color.b, color.a);
+            cx.stroke_preserve()
+                .context("Could not stroke main surface path")?;
+        }
+
+        if self.style.text_opacity > 0. {
+            cx.save()
+                .context("Could not save the current cairo state for clipping")?;
+
+            let avail_w = w - 2. * config.padding.x;
+            let avail_h = h - 2. * config.padding.y;
+            let content_h = self.content_height();
+
+            cx.new_path();
+            let content_x = x + config.padding.x;
+            let content_y = if content_h > avail_h {
+                cx.rectangle(content_x, y + config.padding.y, avail_w, avail_h);
+                cx.clip();
+
+                // Since the clip is a fixed window, the easiest way to anchor to bottom
+                // is to do it during the draw.
+                // TODO: Does bottom anchoring work in all cases?
+                y + config.padding.y - (content_h - avail_h)
+            } else {
+                y + config.padding.y
+            };
+
+            // The title.
+            cx.set_source_rgba(fg.r, fg.g, fg.b, fg.a);
+            let content_y = match &self.render_cache.title {
+                Some((title, h)) => {
+                    cx.move_to(content_x, content_y);
+
+                    pangocairo::functions::show_layout(cx, title);
+                    content_y + h + 8.
+                }
+                None => content_y,
+            };
+
+            // The body.
+            let _content_y = match &self.render_cache.body {
+                Some((body, h)) => {
+                    cx.move_to(content_x, content_y);
+
+                    pangocairo::functions::show_layout(cx, body);
+                    content_y + h + 8.
+                }
+                None => content_y,
+            };
+
+            cx.restore()
+                .context("Could not restore cairo state after clip")?;
+        }
+
+        self.bounds = Some(Rect::from_xywh(x, y, w, h));
+        Ok(self.bounds.as_ref().unwrap())
     }
 
     pub fn set_style(&mut self, style: Style) {
@@ -147,35 +175,31 @@ impl Item {
         self.state = state;
     }
 
-    pub fn content_size(&self, config: &ComputedConfig) -> (f32, f32) {
+    fn content_height(&self) -> f64 {
+        let title_h = match &self.render_cache.title {
+            Some((_, h)) => *h,
+            None => 0.,
+        };
+
+        let body_h = match &self.render_cache.body {
+            Some((_, h)) => *h,
+            None => 0.,
+        };
+
+        title_h
+            + body_h
+            + if title_h > 0. && body_h > 0. {
+                8. // The padding if both the lines of text exist.
+            } else {
+                0.
+            }
+    }
+
+    pub fn content_size(&self, config: &ComputedConfig) -> (f64, f64) {
         (
             config.width,
             (2. * config.padding.y) + self.content_height(),
         )
-    }
-
-    fn content_height(&self) -> f32 {
-        let title_height = self
-            .render_cache
-            .title_p
-            .as_ref()
-            .map(|title| title.height())
-            .unwrap_or_default();
-
-        let body_height = self
-            .render_cache
-            .body_p
-            .as_ref()
-            .map(|body| body.height())
-            .unwrap_or_default();
-
-        title_height
-            + body_height
-            + if title_height > 0. && body_height > 0. {
-                8. // The padding if both the lines of text are non empty.
-            } else {
-                0.
-            }
     }
 
     pub fn hitbox(&self) -> Option<&Rect> {
@@ -185,45 +209,48 @@ impl Item {
             None
         }
     }
-
-    pub fn notification(&self) -> &Notification {
-        &self.notification
-    }
 }
 
 #[derive(Debug)]
 struct ItemRenderCache {
-    title_p: Option<Paragraph>,
-    body_p: Option<Paragraph>,
+    title: Option<(pango::Layout, f64)>,
+    body: Option<(pango::Layout, f64)>,
 }
 
 impl ItemRenderCache {
     pub fn new(config: &ComputedConfig, notification: &Notification) -> Self {
-        let w = config.width - 2. * config.padding.x;
+        // TODO: This should be a calculated value available here instead.
+        let w = (config.width - 2. * config.padding.x) as i32;
 
-        let mut p_style = ParagraphStyle::default();
-        p_style.set_max_lines(4);
+        let cx = pango::Context::new();
+        cx.set_font_map(Some(&config.theme.font_map));
 
-        let title_p = notification.title().map(|summary| {
-            let mut title_p = ParagraphBuilder::new(&p_style, config.theme.font_collection.clone())
-                .push_style(&config.theme.title_style)
-                .add_text(summary)
-                .build();
-            title_p.layout(w);
+        let title = notification.title().map(|title| {
+            let layout = pango::Layout::new(&cx);
 
-            title_p
+            layout.set_width(w * pango::SCALE);
+            layout.set_wrap(pango::WrapMode::Word);
+
+            layout.set_font_description(Some(&config.theme.title_font_description));
+            layout.set_text(title);
+
+            let (_, h) = layout.pixel_size();
+            (layout, h as f64)
         });
 
-        let body_p = notification.body().map(|body| {
-            let mut body_p = ParagraphBuilder::new(&p_style, config.theme.font_collection.clone())
-                .push_style(&config.theme.body_style)
-                .add_text(body)
-                .build();
-            body_p.layout(w);
+        let body = notification.body().map(|body| {
+            let layout = pango::Layout::new(&cx);
 
-            body_p
+            layout.set_width(w * pango::SCALE);
+            layout.set_wrap(pango::WrapMode::Word);
+
+            layout.set_font_description(Some(&config.theme.body_font_description));
+            layout.set_text(body);
+
+            let (_, h) = layout.pixel_size();
+            (layout, h as f64)
         });
 
-        Self { title_p, body_p }
+        Self { title, body }
     }
 }

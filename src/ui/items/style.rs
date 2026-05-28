@@ -6,14 +6,14 @@ use std::{
 /// Represents the visual style of an item.
 #[derive(Clone, Default, Debug)]
 pub struct Style {
-    pub w: f32,
-    pub h: f32,
+    pub w: f64,
+    pub h: f64,
 
-    pub x: f32,
-    pub y: f32,
+    pub x: f64,
+    pub y: f64,
 
-    pub box_opacity: f32,
-    pub text_opacity: f32,
+    pub box_opacity: f64,
+    pub text_opacity: f64,
 }
 
 impl Style {
@@ -41,14 +41,14 @@ impl From<Style> for PartialStyle {
 /// based transitions.
 #[derive(Debug, Default)]
 pub struct PartialStyle {
-    pub w: Option<f32>,
-    pub h: Option<f32>,
+    pub w: Option<f64>,
+    pub h: Option<f64>,
 
-    pub x: Option<f32>,
-    pub y: Option<f32>,
+    pub x: Option<f64>,
+    pub y: Option<f64>,
 
-    pub box_opacity: Option<f32>,
-    pub text_opacity: Option<f32>,
+    pub box_opacity: Option<f64>,
+    pub text_opacity: Option<f64>,
 }
 
 /// Represents the parameters of a transition of a Style into another.
@@ -91,8 +91,8 @@ impl Transition {
         let progress = now
             .checked_duration_since(self.start_at)
             .unwrap_or_default()
-            .as_secs_f32()
-            .div(self.duration.as_secs_f32())
+            .as_secs_f64()
+            .div(self.duration.as_secs_f64())
             .clamp(0., 1.);
 
         // The first interpolation request is treated as the starting point of

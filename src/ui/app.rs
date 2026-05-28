@@ -1,5 +1,4 @@
 use anyhow::{Context, Result};
-use skia_safe::{ImageInfo, surfaces};
 use smithay_client_toolkit::{
     compositor::{CompositorHandler, CompositorState, Region},
     delegate_compositor, delegate_layer, delegate_output, delegate_pointer, delegate_registry,
@@ -227,7 +226,6 @@ impl PointerHandler for App {
                 smithay_client_toolkit::seat::pointer::PointerEventKind::Leave { serial: _ } => {
                     log::trace!(target: "emmer::wl::pointer", "switching to stacked");
                     let _ = logged!(self.set_layout_mode(LayoutMode::Stacked));
-
                     break;
                 }
                 _ => {}
@@ -317,7 +315,8 @@ impl App {
                 max_count: 3,
             },
             theme: ThemeConfig {
-                font_family: "Ubuntu".into(),
+                title_font_description: "JetBrainsMono Nerd Font Mono Bold 10".to_string(),
+                body_font_description: "JetBrainsMono Nerd Font Mono 10".to_string(),
             },
             width: 320.,
         });
@@ -393,7 +392,7 @@ impl App {
                     let _ = logged!(
                         self.server_tx
                             .send(ServerMessage::Dismiss {
-                                id: id.clone(),
+                                id: *id,
                                 reason: match reason {
                                     DismissReason::Manual => 2,
                                     DismissReason::Expired => 1,
@@ -422,36 +421,49 @@ impl App {
             .context("Could not get buffer from pool")?;
 
         let Some((frame_buffer, canvas)) = buffer else {
-            log::debug!("dropping frame: could not acquire a buffer");
+            // log::debug!("dropping frame: could not acquire a buffer");
             wl_surface.frame(&self.queue_handle, wl_surface.clone());
             wl_surface.commit();
             return Ok(());
         };
+        canvas.fill(0);
 
-        // Render to a skia surface.
-        let mut surface = surfaces::raster_n32_premul((self.width, self.height))
-            .context("Could not create skia surface")?;
-        let (transitions_settled, bounds) = self.stack.render(&self.config, surface.canvas());
+        // Render to a cairo surface.
+        // TODO: Instead of the unsafe here, we should manage cairo surfaces and buffers
+        // in the pool together so they have a shared lifetime. Right now, we can have a
+        // memory issue if we receive a surface configure callback while a draw is ongoing.
+        // Or, maybe even just use a mutex on the application state.
+        let surface = unsafe {
+            cairo::ImageSurface::create_for_data_unsafe(
+                canvas.as_mut_ptr(),
+                cairo::Format::ARgb32,
+                self.width,
+                self.height,
+                self.width * 4,
+            )
+        }
+        .context("Could not create cairo surface")?;
+        let cr = cairo::Context::new(&surface).context("Could not create cairo context")?;
 
-        let image_info = ImageInfo::new_n32_premul((surface.width(), surface.height()), None);
-        surface.read_pixels(
-            &image_info,
-            canvas,
-            image_info.bytes_per_pixel() * image_info.width() as usize,
-            (0, 0),
-        );
+        let (transitions_settled, bounds) = self
+            .stack
+            .render(&self.config, &cr)
+            .context("Could not render stack")?;
 
         // Update the input region.
-        let region = Region::new(&self.compositor_state).context("Could not create region")?;
-        region.add(
-            bounds.x() as i32,
-            bounds.y() as i32,
-            bounds.width() as i32,
-            (bounds.height() as i32).min(self.height),
-        );
-        wl_surface.set_input_region(Some(region.wl_region()));
+        if let Some(bounds) = bounds {
+            let region = Region::new(&self.compositor_state).context("Could not create region")?;
+            region.add(
+                bounds.x1 as i32 - 8,
+                bounds.y1 as i32 - 8,
+                (bounds.x2 - bounds.x1) as i32 + 8,
+                self.height.min((bounds.y2 - bounds.y1) as i32 + 8),
+            );
+            wl_surface.set_input_region(Some(region.wl_region()));
+        }
 
         // Request an update to the frame.
+        surface.flush();
         frame_buffer
             .attach_to(wl_surface)
             .context("Could not attach buffer")?;

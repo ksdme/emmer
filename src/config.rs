@@ -1,26 +1,23 @@
-use skia_safe::{
-    Color, FontMgr, Paint,
-    textlayout::{FontCollection, TextStyle},
-};
+use pango::FontDescription;
 
 #[derive(Debug)]
 pub struct Insets {
     /// The measure in the horizontal axis.
-    pub x: f32,
+    pub x: f64,
 
     /// The measure in the vertical axis.
-    pub y: f32,
+    pub y: f64,
 }
 
 #[derive(Debug)]
 pub struct StackConfig {
     /// The height by which each stacked card will be peeking outside the
     /// the previous card.
-    pub peek: f32,
+    pub peek: f64,
 
     /// The width by which each stacked card will be smaller than the
     /// previous card.
-    pub inset: f32,
+    pub inset: f64,
 
     /// The maximum number of notification cards that will be visible when the
     /// cards are stacked.
@@ -30,7 +27,7 @@ pub struct StackConfig {
 #[derive(Debug)]
 pub struct SpreadConfig {
     /// The gap between each notification card when the cards are spread out.
-    pub gap: f32,
+    pub gap: f64,
 
     /// The maximum number of notification cards that will be visible when the
     /// cards are spread out of the stack.
@@ -39,8 +36,13 @@ pub struct SpreadConfig {
 
 #[derive(Debug)]
 pub struct ThemeConfig {
-    /// The font family for all content.
-    pub font_family: String,
+    /// The font description of the title.
+    /// https://docs.gtk.org/Pango/type_func.FontDescription.from_string.html#description
+    pub title_font_description: String,
+
+    /// The font description of the body.
+    /// https://docs.gtk.org/Pango/type_func.FontDescription.from_string.html#description
+    pub body_font_description: String,
 }
 
 // TODO: Support padding.
@@ -50,7 +52,7 @@ pub struct ThemeConfig {
 #[derive(Debug)]
 pub struct Config {
     /// The width of a notification card.
-    pub width: f32,
+    pub width: f64,
 
     /// The margin around the cards.
     pub margin: Insets,
@@ -70,36 +72,17 @@ pub struct Config {
 
 #[derive(Debug)]
 pub struct Theme {
-    pub font_collection: FontCollection,
-
-    pub title_style: TextStyle,
-    pub body_style: TextStyle,
+    pub font_map: pango::FontMap,
+    pub title_font_description: FontDescription,
+    pub body_font_description: FontDescription,
 }
 
 impl From<ThemeConfig> for Theme {
     fn from(config: ThemeConfig) -> Self {
-        let mut font_collection = FontCollection::new();
-        font_collection.set_default_font_manager(FontMgr::default(), None);
-
-        let mut text_paint = Paint::default();
-        text_paint.set_color(Color::from_rgb(255, 255, 255));
-
-        let mut title_style = TextStyle::default();
-        title_style
-            .set_font_families(&[&config.font_family.clone()])
-            .set_font_size(14.)
-            .set_foreground_paint(&text_paint);
-
-        let mut body_style = TextStyle::default();
-        body_style
-            .set_font_families(&[&config.font_family])
-            .set_font_size(13.)
-            .set_foreground_paint(&text_paint);
-
         Self {
-            font_collection,
-            title_style,
-            body_style,
+            font_map: pangocairo::FontMap::default(),
+            title_font_description: FontDescription::from_string(&config.title_font_description),
+            body_font_description: FontDescription::from_string(&config.body_font_description),
         }
     }
 }
@@ -107,7 +90,7 @@ impl From<ThemeConfig> for Theme {
 /// Represents a prepared configuration.
 #[derive(Debug)]
 pub struct ComputedConfig {
-    pub width: f32,
+    pub width: f64,
 
     pub margin: Insets,
     pub padding: Insets,

@@ -1,16 +1,19 @@
+use anyhow::{Context, Result};
+
 use std::{
     collections::{BTreeMap, HashSet},
     time::{Duration, Instant},
 };
 
-use skia_safe::{Contains, Point, Rect};
-
 use crate::{
     config::ComputedConfig,
     notification::Notification,
-    ui::items::{
-        item::{Item, State},
-        style::{PartialStyle, Style, Transition},
+    ui::{
+        bounds::Rect,
+        items::{
+            item::{Item, State},
+            style::{PartialStyle, Style, Transition},
+        },
     },
 };
 
@@ -53,12 +56,13 @@ impl Stack {
 
     // Finds an item that is at (x, y) position.
     pub fn find_at(&self, at: (f32, f32)) -> Option<u32> {
+        let at = (at.0 as f64, at.1 as f64);
         self.items
             .values()
             .into_iter()
             .find(|el| {
                 if let Some(hitbox) = el.hitbox() {
-                    hitbox.contains(Point::from(at))
+                    hitbox.contains(at)
                 } else {
                     false
                 }
@@ -235,7 +239,9 @@ impl Stack {
     }
 
     pub fn layout_stack(&mut self, config: &ComputedConfig, now: Instant) {
-        let mut no = 0;
+        let stack_max_count = config.stack.max_count as f64;
+
+        let mut no = 0.;
         let mut top_y = config.margin.y;
 
         for (_, item) in self.items.iter_mut().rev() {
@@ -243,7 +249,7 @@ impl Stack {
             let (item_w, item_h) = item.content_size(config);
 
             // Renders the first item as a regular block.
-            if no == 0 {
+            if no == 0. {
                 let target = Style {
                     x: config.margin.x,
                     y: top_y,
@@ -262,7 +268,7 @@ impl Stack {
                 };
 
                 if item_state == State::Alive {
-                    no += 1;
+                    no += 1.;
                     top_y = target.y + target.h;
                 }
 
@@ -271,16 +277,16 @@ impl Stack {
                     target.into(),
                     Some(now),
                 )]);
-            } else if no < config.stack.max_count {
+            } else if no < stack_max_count {
                 // Render the stack entries.
 
                 // The height of the card should be smaller than the top-most card.
                 let h = item_h.min(top_y - config.margin.y);
                 let target = PartialStyle {
-                    x: Some(config.margin.x + (no as f32) * config.stack.inset),
+                    x: Some(config.margin.x + no * config.stack.inset),
                     y: Some(top_y + config.stack.peek - h),
 
-                    w: Some(config.width - 2. * (no as f32) * config.stack.inset),
+                    w: Some(config.width - 2. * no * config.stack.inset),
                     h: Some(h),
 
                     box_opacity: Some(match item_state {
@@ -291,7 +297,7 @@ impl Stack {
                 };
 
                 if item_state == State::Alive {
-                    no += 1;
+                    no += 1.;
                     top_y = target.y.unwrap_or_default() + target.h.unwrap_or_default();
                 }
 
@@ -302,7 +308,7 @@ impl Stack {
                 )]);
             } else {
                 // Render the rest of the items as hidden.
-                let max_no = (config.stack.max_count + 1) as f32;
+                let max_no = stack_max_count + 1.;
 
                 item.set_transitions(vec![
                     Transition::new(
@@ -332,29 +338,37 @@ impl Stack {
         }
     }
 
-    // Renders the stack to the skia canvas and returns a bool indicating if all the item transitions
-    // have settled and the visual bounds of the stack.
-    pub fn render(&mut self, config: &ComputedConfig, canvas: &skia_safe::Canvas) -> (bool, Rect) {
+    // Renders the stack to the cairo canvas and returns a bool indicating if all the item
+    // transitions have settled and the visual bounds of the stack.
+    pub fn render(
+        &mut self,
+        config: &ComputedConfig,
+        cx: &cairo::Context,
+    ) -> Result<(bool, Option<Rect>)> {
         let now = Instant::now();
 
         let mut settled = true;
+        let mut full_bounds: Option<Rect> = None;
         let mut settled_dismissals = HashSet::<u32>::new();
-        let (mut x1, mut y1, mut x2, mut y2) = (0f32, 0f32, 0f32, 0f32);
 
         for (id, item) in self.items.iter_mut() {
             let item_settled = item.tick(&now);
 
             // Render and update the scene bounds.
-            let rect = item.render(config, canvas);
-            x1 = x1.min(rect.left());
-            y1 = y1.min(rect.top());
-            x2 = x2.max(rect.right());
-            y2 = y2.max(rect.bottom());
+            let bounds = item
+                .render(config, cx)
+                .context("Could not render item: {id}")?;
+
+            let fb = full_bounds.get_or_insert(bounds.clone());
+            fb.x1 = fb.x1.min(bounds.x1);
+            fb.y1 = fb.y1.min(bounds.y1);
+            fb.x2 = fb.x2.max(bounds.x2);
+            fb.y2 = fb.y2.max(bounds.y2);
 
             // If the item was marked as dismissed, and the transition
             // around it has settled, then, remove.
             if item_settled && item.state() == State::Dismissed {
-                settled_dismissals.insert(id.clone());
+                settled_dismissals.insert(*id);
             }
 
             settled &= item_settled;
@@ -364,6 +378,6 @@ impl Stack {
             self.items.retain(|id, _| !settled_dismissals.contains(id));
         }
 
-        (settled, Rect::from_ltrb(x1, y1, x2, y2))
+        Ok((settled, full_bounds))
     }
 }

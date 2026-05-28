@@ -6,6 +6,10 @@ tasks:
       - systemctl stop --user mako.service
       - RUST_LOG=emmer=debug cargo run
 
+  q:
+    cmds:
+      - notify-send "Message" "This is the body of the notification."
+
   flood:
     cmds:
       - |

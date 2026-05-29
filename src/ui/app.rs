@@ -1,4 +1,6 @@
-use anyhow::{Context, Result};
+use std::sync::Mutex;
+
+use anyhow::{Context, Result, anyhow};
 use smithay_client_toolkit::{
     compositor::{CompositorHandler, CompositorState, Region},
     delegate_compositor, delegate_layer, delegate_output, delegate_pointer, delegate_registry,
@@ -47,7 +49,7 @@ pub struct App {
     pointer: Option<WlPointer>,
 
     shm: Shm,
-    buffer_pool: Option<BufferPool<3>>,
+    buffer_pool: Mutex<BufferPool<3>>,
 
     width: i32,
     height: i32,
@@ -159,7 +161,7 @@ impl LayerShellHandler for App {
     fn configure(
         &mut self,
         _conn: &Connection,
-        _qh: &wayland_client::QueueHandle<Self>,
+        qh: &wayland_client::QueueHandle<Self>,
         layer: &smithay_client_toolkit::shell::wlr_layer::LayerSurface,
         configure: smithay_client_toolkit::shell::wlr_layer::LayerSurfaceConfigure,
         _serial: u32,
@@ -170,19 +172,10 @@ impl LayerShellHandler for App {
         self.width = w as i32;
         self.height = h as i32;
 
-        // FIXME: Because we do not refresh render caches, accepting lower widths will
-        // cause visual artifacts.
-        layer.set_size(w, h);
-        layer.commit();
-
-        // Update the buffer pool.
-        self.buffer_pool = logged!(
-            BufferPool::new(&self.shm, w, w * 4, h, wl_shm::Format::Argb8888,)
-                .context("Could not initialize buffer pool")
-        )
-        .ok();
-
-        let _ = logged!(self.draw().context("Could not draw frame"));
+        // Buffers should be recreated on the frame callback.
+        let surface = layer.wl_surface();
+        surface.frame(qh, surface.clone());
+        surface.commit();
     }
 }
 delegate_layer!(App);
@@ -354,6 +347,7 @@ impl App {
 
         let seat_state = SeatState::new(&globals, &q_handle);
         let shm = Shm::bind(&globals, &q_handle).context("Could not bind shm")?;
+        let buffer_pool = BufferPool::<3>::new(&shm).context("Could not initialize buffer pool")?;
 
         Ok((
             App {
@@ -370,7 +364,7 @@ impl App {
                 pointer: None,
 
                 shm,
-                buffer_pool: None,
+                buffer_pool: Mutex::new(buffer_pool),
 
                 width: 0,
                 height: 0,
@@ -411,31 +405,48 @@ impl App {
     pub fn draw(&mut self) -> Result<()> {
         let wl_surface = self.layer_surface.wl_surface();
 
-        // Try acquiring a buffer and if we can't find one, queue another draw call
-        // and skip this frame.
-        let buffer = self
+        let mut buffer_pool = self
             .buffer_pool
-            .as_mut()
-            .context("BufferPool unavailable")?
-            .get()
-            .context("Could not get buffer from pool")?;
+            .lock()
+            .map_err(|err| anyhow!("Could not lock buffer pool: {err:?}"))?;
 
-        let Some((frame_buffer, canvas)) = buffer else {
-            // log::debug!("dropping frame: could not acquire a buffer");
-            wl_surface.frame(&self.queue_handle, wl_surface.clone());
-            wl_surface.commit();
-            return Ok(());
+        // Try acquiring a free buffer and if we can't find one,
+        // queue another frame callback and skip this frame.
+        let (frame_buffer, mem) = match buffer_pool
+            .get(
+                self.width as u32,
+                self.width as u32 * 4,
+                self.height as u32,
+                wl_shm::Format::Argb8888,
+            )
+            .context("Could not get a buffer")?
+            .context("Could not find a buffer")
+        {
+            Err(err) => {
+                wl_surface.frame(&self.queue_handle, wl_surface.clone());
+                wl_surface.commit();
+                return Err(err);
+            }
+            Ok(buff) => buff,
         };
-        canvas.fill(0);
+
+        // The buffer might have data left from a previous render. Clearing it via
+        // cairo operations is often more involved. So, instead, we can just reset the mem.
+        mem.fill(0);
 
         // Render to a cairo surface.
-        // TODO: Instead of the unsafe here, we should manage cairo surfaces and buffers
-        // in the pool together so they have a shared lifetime. Right now, we can have a
-        // memory issue if we receive a surface configure callback while a draw is ongoing.
-        // Or, maybe even just use a mutex on the application state.
+        //
+        // The unsafe here is acceptable because,
+        // 1. The cairo surface/context does not leave this method.
+        // 2. The method holds a lock on the buffer pool, so no changes can happen there.
+        // 3. SCTK Slots are reference counted, so even if the next frame drops the buffers,
+        //    they will be around until Wayland releases them.
+        //
+        // Without the unsafe, we will end up having to first draw to a cairo surface and
+        // then read out the entire buffer into Wayland SHM buffer.
         let surface = unsafe {
             cairo::ImageSurface::create_for_data_unsafe(
-                canvas.as_mut_ptr(),
+                mem.as_mut_ptr(),
                 cairo::Format::ARgb32,
                 self.width,
                 self.height,

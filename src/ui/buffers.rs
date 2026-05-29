@@ -9,28 +9,16 @@ use wayland_client::protocol::wl_shm;
 pub struct BufferPool<const N: usize> {
     pool: SlotPool,
     buffers: Vec<(Slot, Buffer)>,
-    shape: (u32, u32, u32, wl_shm::Format),
+    shape: Option<(u32, u32, u32, wl_shm::Format)>,
 }
 
 impl<const N: usize> BufferPool<N> {
-    pub fn new(
-        shm: &Shm,
-        width: u32,
-        stride: u32,
-        height: u32,
-        format: wl_shm::Format,
-    ) -> Result<Self> {
-        let mut buffer_pool = Self {
+    pub fn new(shm: &Shm) -> Result<Self> {
+        Ok(Self {
             pool: SlotPool::new(1024 * 1024, shm).context("Could not create slot pool")?,
             buffers: Vec::with_capacity(N),
-            shape: (width, stride, height, format),
-        };
-
-        buffer_pool
-            .ensure_buffers(width, stride, height, format)
-            .context("Could not init buffer pool")?;
-
-        Ok(buffer_pool)
+            shape: None,
+        })
     }
 
     fn ensure_buffers(
@@ -40,11 +28,11 @@ impl<const N: usize> BufferPool<N> {
         height: u32,
         format: wl_shm::Format,
     ) -> Result<()> {
-        if self.shape == (width, stride, height, format) && !self.buffers.is_empty() {
+        if self.shape == Some((width, stride, height, format)) && !self.buffers.is_empty() {
             return Ok(());
         }
 
-        let mut buffers = vec![];
+        self.buffers.clear();
         for _ in 0..N {
             let slot = self
                 .pool
@@ -56,16 +44,23 @@ impl<const N: usize> BufferPool<N> {
                 .create_buffer_in(&slot, width as i32, height as i32, stride as i32, format)
                 .context("Could not create buffer in slot")?;
 
-            buffers.push((slot, buffer));
+            self.buffers.push((slot, buffer));
         }
-
-        self.buffers = buffers;
-        self.shape = (width, stride, height, format);
+        self.shape = Some((width, stride, height, format));
 
         Ok(())
     }
 
-    pub fn get(&mut self) -> Result<Option<(&Buffer, &mut [u8])>> {
+    pub fn get(
+        &mut self,
+        width: u32,
+        stride: u32,
+        height: u32,
+        format: wl_shm::Format,
+    ) -> Result<Option<(&Buffer, &mut [u8])>> {
+        self.ensure_buffers(width, stride, height, format)
+            .context("Could not realign buffer pool")?;
+
         let buffer = self
             .buffers
             .iter_mut()

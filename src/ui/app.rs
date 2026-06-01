@@ -11,7 +11,7 @@ use smithay_client_toolkit::{
     registry_handlers,
     seat::{
         Capability, SeatHandler, SeatState,
-        pointer::{BTN_LEFT, BTN_RIGHT, PointerHandler},
+        pointer::{BTN_LEFT, BTN_RIGHT, PointerHandler, ThemeSpec, ThemedPointer},
     },
     shell::{
         WaylandSurface,
@@ -23,7 +23,6 @@ use wayland_client::{
     Connection, EventQueue, QueueHandle,
     globals::registry_queue_init,
     protocol::{
-        wl_pointer::WlPointer,
         wl_seat::{self, WlSeat},
         wl_shm,
     },
@@ -53,7 +52,7 @@ pub struct App {
     seat_state: SeatState,
 
     seat: Option<WlSeat>,
-    pointer: Option<WlPointer>,
+    pointer: Option<ThemedPointer>,
     activation_state: ActivationState,
 
     shm: Shm,
@@ -199,7 +198,7 @@ delegate_shm!(App);
 impl PointerHandler for App {
     fn pointer_frame(
         &mut self,
-        _conn: &Connection,
+        conn: &Connection,
         qh: &wayland_client::QueueHandle<Self>,
         _pointer: &wayland_client::protocol::wl_pointer::WlPointer,
         events: &[smithay_client_toolkit::seat::pointer::PointerEvent],
@@ -298,12 +297,25 @@ impl SeatHandler for App {
     ) {
         log::debug!(target: "emmer::wl::seat", "new_capability: {capability:?}");
 
-        let current = self.seat.get_or_insert(seat.clone());
-        if capability == Capability::Pointer
-            && current == &seat
-            && let Ok(pointer) = logged!(self.seat_state.get_pointer(qh, &seat))
-        {
-            self.pointer = Some(pointer);
+        if capability == Capability::Pointer {
+            let current = self.seat.get_or_insert(seat.clone());
+            if current == &seat {
+                let pointer = logged!(
+                    self.seat_state
+                        .get_pointer_with_theme(
+                            qh,
+                            &seat,
+                            self.shm.wl_shm(),
+                            self.layer_surface.wl_surface().clone(),
+                            ThemeSpec::default(),
+                        )
+                        .context("Could not get pointer with theme")
+                );
+
+                if let Ok(pointer) = pointer {
+                    self.pointer = Some(pointer);
+                }
+            }
         }
     }
 

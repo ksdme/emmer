@@ -7,8 +7,10 @@ use zbus::{interface, object_server::SignalEmitter, zvariant};
 use crate::{UIMessage, notification::Notification};
 
 // Represents a message from the UI thread to the server thread.
+#[derive(Debug)]
 pub enum ServerMessage {
     Dismiss { id: u32, reason: u32 },
+    ActivationToken { id: u32, token: String },
 }
 
 /// A dbus service for handling notification messages.
@@ -66,11 +68,21 @@ impl NotificationService {
         ("emmer".into(), "me".into(), "1.0".into(), "1.2".into())
     }
 
-    /// A completed notification is one that has timed out, or has been dismissed by the user.
+    /// A signal that represents that notification has been closed either because it
+    /// timed out or because the user dismissed it.
     #[zbus(signal)]
     pub async fn notification_closed(
         signal_emitter: &SignalEmitter<'_>,
         id: u32,
         reason: u32,
+    ) -> zbus::Result<()>;
+
+    /// A signal to pass the activation token that the target application can use to
+    /// change focus.
+    #[zbus(signal)]
+    pub async fn activation_token(
+        signal_emitter: &SignalEmitter<'_>,
+        id: u32,
+        activation_token: String,
     ) -> zbus::Result<()>;
 }

@@ -2,15 +2,16 @@ use std::sync::Mutex;
 
 use anyhow::{Context, Result, anyhow};
 use smithay_client_toolkit::{
+    activation::{ActivationHandler, ActivationState, RequestData},
     compositor::{CompositorHandler, CompositorState, Region},
-    delegate_compositor, delegate_layer, delegate_output, delegate_pointer, delegate_registry,
-    delegate_seat, delegate_shm,
+    delegate_activation, delegate_compositor, delegate_layer, delegate_output, delegate_pointer,
+    delegate_registry, delegate_seat, delegate_shm,
     output::{OutputHandler, OutputState},
     registry::{ProvidesRegistryState, RegistryState},
     registry_handlers,
     seat::{
         Capability, SeatHandler, SeatState,
-        pointer::{BTN_RIGHT, PointerHandler},
+        pointer::{BTN_LEFT, BTN_RIGHT, PointerHandler},
     },
     shell::{
         WaylandSurface,
@@ -21,7 +22,11 @@ use smithay_client_toolkit::{
 use wayland_client::{
     Connection, EventQueue, QueueHandle,
     globals::registry_queue_init,
-    protocol::{wl_pointer::WlPointer, wl_seat, wl_shm},
+    protocol::{
+        wl_pointer::WlPointer,
+        wl_seat::{self, WlSeat},
+        wl_shm,
+    },
 };
 
 use crate::{
@@ -29,6 +34,7 @@ use crate::{
     dbus::ServerMessage,
     logged, notification,
     ui::{
+        activation::ActivationRequestData,
         buffers::BufferPool,
         items::{DismissReason, LayoutMode, Stack, StackCommand},
     },
@@ -46,7 +52,9 @@ pub struct App {
     layer_surface: LayerSurface,
     seat_state: SeatState,
 
+    seat: Option<WlSeat>,
     pointer: Option<WlPointer>,
+    activation_state: ActivationState,
 
     shm: Shm,
     buffer_pool: Mutex<BufferPool<3>>,
@@ -192,7 +200,7 @@ impl PointerHandler for App {
     fn pointer_frame(
         &mut self,
         _conn: &Connection,
-        _qh: &wayland_client::QueueHandle<Self>,
+        qh: &wayland_client::QueueHandle<Self>,
         _pointer: &wayland_client::protocol::wl_pointer::WlPointer,
         events: &[smithay_client_toolkit::seat::pointer::PointerEvent],
     ) {
@@ -203,11 +211,42 @@ impl PointerHandler for App {
                 smithay_client_toolkit::seat::pointer::PointerEventKind::Release {
                     time: _,
                     button,
-                    serial: _,
+                    serial,
                 } => {
                     log::trace!(target: "emmer::wl::pointer", "frame release");
-                    if button == BTN_RIGHT {
-                        let _ = logged!(self.dismiss((e.position.0 as f32, e.position.1 as f32)));
+
+                    if button == BTN_LEFT {
+                        let Some(id) = self.find_at((e.position.0 as f32, e.position.1 as f32))
+                        else {
+                            log::warn!(target: "emmer::wl::pointer", "Could not find target item");
+                            break;
+                        };
+
+                        let Some(seat) = self.seat.as_ref() else {
+                            log::warn!(target: "emmer::wl::pointer", "Could not find seat: {id}");
+                            break;
+                        };
+
+                        self.activation_state.request_token_with_data(
+                            qh,
+                            ActivationRequestData::new(
+                                id,
+                                RequestData {
+                                    app_id: None,
+                                    seat_and_serial: Some((seat.clone(), serial)),
+                                    surface: Some(e.surface.clone()),
+                                },
+                            ),
+                        );
+                        break;
+                    } else if button == BTN_RIGHT {
+                        let Some(id) = self.find_at((e.position.0 as f32, e.position.1 as f32))
+                        else {
+                            log::warn!(target: "emmer::wl::pointer", "Could not find target item");
+                            break;
+                        };
+
+                        let _ = logged!(self.dismiss(id));
                         break;
                     }
                 }
@@ -240,6 +279,14 @@ impl SeatHandler for App {
         seat: wl_seat::WlSeat,
     ) {
         log::debug!(target: "emmer::wl::seat", "new_seat: {seat:?}");
+
+        // It doesn't make too much sense for this application to support multiple users,
+        // or... does it?
+        if let Some(ref current) = self.seat {
+            log::warn!(target: "emmer::wl::seat", "ignoring seat: {seat:?} for: {current:?}")
+        } else {
+            self.seat = Some(seat);
+        }
     }
 
     fn new_capability(
@@ -251,21 +298,27 @@ impl SeatHandler for App {
     ) {
         log::debug!(target: "emmer::wl::seat", "new_capability: {capability:?}");
 
+        let current = self.seat.get_or_insert(seat.clone());
         if capability == Capability::Pointer
+            && current == &seat
             && let Ok(pointer) = logged!(self.seat_state.get_pointer(qh, &seat))
         {
             self.pointer = Some(pointer);
-        };
+        }
     }
 
     fn remove_capability(
         &mut self,
         _conn: &Connection,
         _qh: &wayland_client::QueueHandle<Self>,
-        _seat: wl_seat::WlSeat,
+        seat: wl_seat::WlSeat,
         capability: smithay_client_toolkit::seat::Capability,
     ) {
         log::debug!(target: "emmer::wl::seat", "remove_capability: {capability:?}");
+
+        if capability == Capability::Pointer && self.seat.as_ref() == Some(&seat) {
+            self.pointer = None;
+        }
     }
 
     fn remove_seat(
@@ -275,9 +328,28 @@ impl SeatHandler for App {
         seat: wl_seat::WlSeat,
     ) {
         log::debug!(target: "emmer::wl::seat", "remove_seat: {seat:?}");
+
+        if self.seat.as_ref() == Some(&seat) {
+            self.seat = None;
+        }
     }
 }
 delegate_seat!(App);
+
+impl ActivationHandler for App {
+    type RequestData = ActivationRequestData;
+
+    fn new_token(&mut self, token: String, request: &Self::RequestData) {
+        log::debug!(target: "emmer::wl::activation", "new_token: {request:?}");
+
+        let _ = logged!(
+            self.server_tx
+                .send(request.server_message(token))
+                .context("Could not send activation token message")
+        );
+    }
+}
+delegate_activation!(App, ActivationRequestData);
 
 // Required to start the queue and keep the globals up to date.
 impl ProvidesRegistryState for App {
@@ -345,8 +417,12 @@ impl App {
         layer_surface.commit();
         surface.commit();
 
+        let activation_state = ActivationState::bind(&globals, &q_handle)
+            .context("Could not bind activation state")?;
+
         let seat_state = SeatState::new(&globals, &q_handle);
         let shm = Shm::bind(&globals, &q_handle).context("Could not bind shm")?;
+
         let buffer_pool = BufferPool::<3>::new(&shm).context("Could not initialize buffer pool")?;
 
         Ok((
@@ -361,7 +437,9 @@ impl App {
                 layer_surface,
                 seat_state,
 
+                seat: None,
                 pointer: None,
+                activation_state,
 
                 shm,
                 buffer_pool: Mutex::new(buffer_pool),
@@ -489,18 +567,17 @@ impl App {
         Ok(())
     }
 
+    pub fn find_at(&self, at: (f32, f32)) -> Option<u32> {
+        self.stack.find_at(at)
+    }
+
     pub fn push(&mut self, notification: notification::Notification) -> Result<()> {
         let commands = self.stack.push(&self.config, notification);
         self.handle_stack_commands(commands)
             .context("Could not process push commands")
     }
 
-    pub fn dismiss(&mut self, at: (f32, f32)) -> Result<()> {
-        let id = self
-            .stack
-            .find_at(at)
-            .context("Could not find item to dismiss")?;
-
+    pub fn dismiss(&mut self, id: u32) -> Result<()> {
         let commands = self.stack.dismiss(&self.config, id, DismissReason::Manual);
         self.handle_stack_commands(commands)
             .context("Could not process dismiss commands")

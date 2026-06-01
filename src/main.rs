@@ -136,7 +136,14 @@ async fn run_server(
                 let _ = logged!(
                     NotificationService::notification_closed(&signal_emitter, id, reason)
                         .await
-                        .context("Could not send dismiss message: {id}")
+                        .context("Could not send notification closed message: {id}")
+                );
+            }
+            ServerMessage::ActivationToken { id, token } => {
+                let _ = logged!(
+                    NotificationService::activation_token(&signal_emitter, id, token)
+                        .await
+                        .context("Could not send activation token to: {id}")
                 );
             }
         }

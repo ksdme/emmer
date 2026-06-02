@@ -35,7 +35,7 @@ use crate::{
     ui::{
         activation::ActivationRequestData,
         buffers::BufferPool,
-        items::{DismissReason, LayoutMode, Stack, StackCommand},
+        items::{Item, LayoutMode, Stack},
     },
 };
 
@@ -220,32 +220,15 @@ impl PointerHandler for App {
                             log::warn!(target: "emmer::wl::pointer", "Could not find target item");
                             break;
                         };
-
-                        let Some(seat) = self.seat.as_ref() else {
-                            log::warn!(target: "emmer::wl::pointer", "Could not find seat: {id}");
-                            break;
-                        };
-
-                        self.activation_state.request_token_with_data(
-                            qh,
-                            ActivationRequestData::new(
-                                id,
-                                RequestData {
-                                    app_id: None,
-                                    seat_and_serial: Some((seat.clone(), serial)),
-                                    surface: Some(e.surface.clone()),
-                                },
-                            ),
-                        );
                         break;
                     } else if button == BTN_RIGHT {
-                        let Some(id) = self.find_at((e.position.0 as f32, e.position.1 as f32))
+                        let Some(item) = self.find_at((e.position.0 as f32, e.position.1 as f32))
                         else {
                             log::warn!(target: "emmer::wl::pointer", "Could not find target item");
                             break;
                         };
 
-                        let _ = logged!(self.dismiss(id));
+                        let _ = logged!(self.on_dismiss(item.id()));
                         break;
                     }
                 }
@@ -258,6 +241,19 @@ impl PointerHandler for App {
                     log::trace!(target: "emmer::wl::pointer", "switching to stacked");
                     let _ = logged!(self.set_layout_mode(LayoutMode::Stacked));
                     break;
+                }
+                smithay_client_toolkit::seat::pointer::PointerEventKind::Motion { time: _ } => {
+                    log::trace!(target: "emmer::wl::pointer", "motion");
+                    if let Some(pointer) = self.pointer.as_ref() {
+                        let _ = logged!(
+                            pointer
+                                .set_cursor(
+                                    conn,
+                                    smithay_client_toolkit::seat::pointer::CursorIcon::Pointer,
+                                )
+                                .context("Could not change cursor")
+                        );
+                    }
                 }
                 _ => {}
             }
@@ -468,30 +464,6 @@ impl App {
 }
 
 impl App {
-    // TODO: Bubble errors better(?)
-    fn handle_stack_commands(&mut self, commands: Vec<StackCommand>) -> Result<()> {
-        for command in &commands {
-            match command {
-                StackCommand::NotifyDismissed(id, reason) => {
-                    let _ = logged!(
-                        self.server_tx
-                            .send(ServerMessage::Dismiss {
-                                id: *id,
-                                reason: match reason {
-                                    DismissReason::Manual => 2,
-                                    DismissReason::Expired => 1,
-                                },
-                            })
-                            .context("Could not send message to server")
-                    );
-                }
-                StackCommand::Redraw => self.draw().context("Could not draw")?,
-            }
-        }
-
-        Ok(())
-    }
-
     pub fn draw(&mut self) -> Result<()> {
         let wl_surface = self.layer_surface.wl_surface();
 
@@ -579,32 +551,51 @@ impl App {
         Ok(())
     }
 
-    pub fn find_at(&self, at: (f32, f32)) -> Option<u32> {
+    pub fn find_at(&self, at: (f32, f32)) -> Option<&Item> {
         self.stack.find_at(at)
     }
 
     pub fn push(&mut self, notification: notification::Notification) -> Result<()> {
-        let commands = self.stack.push(&self.config, notification);
-        self.handle_stack_commands(commands)
-            .context("Could not process push commands")
+        if self.stack.push(&self.config, notification) {
+            self.draw().context("Could not draw")
+        } else {
+            Ok(())
+        }
     }
 
-    pub fn dismiss(&mut self, id: u32) -> Result<()> {
-        let commands = self.stack.dismiss(&self.config, id, DismissReason::Manual);
-        self.handle_stack_commands(commands)
-            .context("Could not process dismiss commands")
+    pub fn on_dismiss(&mut self, id: u32) -> Result<()> {
+        if self.stack.dismiss(&self.config, id) {
+            self.server_tx
+                .send(ServerMessage::Dismiss { id: id, reason: 2 })
+                .context("Could not send closed signal")?;
+
+            self.draw().context("Could not draw")
+        } else {
+            Ok(())
+        }
     }
 
     pub fn dismiss_expired(&mut self) -> Result<()> {
-        let commands = self.stack.dismiss_expired(&self.config);
-        self.handle_stack_commands(commands)
-            .context("Could not process expired commands")
+        let dismissals = self.stack.dismiss_expired(&self.config);
+        if dismissals.is_empty() {
+            Ok(())
+        } else {
+            for id in dismissals.iter() {
+                self.server_tx
+                    .send(ServerMessage::Dismiss { id: *id, reason: 1 })
+                    .context("Could not send closed signal")?;
+            }
+
+            self.draw().context("Could not draw")
+        }
     }
 
     pub fn set_layout_mode(&mut self, mode: LayoutMode) -> Result<()> {
-        let commands = self.stack.set_layout_mode(&self.config, mode);
-        self.handle_stack_commands(commands)
-            .context("Could not process layout mode change commands")
+        if self.stack.set_layout_mode(&self.config, mode) {
+            self.draw().context("Could not draw")
+        } else {
+            Ok(())
+        }
     }
 }
 

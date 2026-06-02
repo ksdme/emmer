@@ -17,18 +17,6 @@ use crate::{
     },
 };
 
-#[derive(Debug)]
-pub enum DismissReason {
-    Manual,
-    Expired,
-}
-
-#[derive(Debug)]
-pub enum StackCommand {
-    Redraw,
-    NotifyDismissed(u32, DismissReason),
-}
-
 #[derive(Debug, Clone, PartialEq)]
 pub enum LayoutMode {
     Spread,
@@ -54,46 +42,42 @@ impl Stack {
         }
     }
 
-    // Finds an item that is at (x, y) position.
-    pub fn find_at(&self, at: (f32, f32)) -> Option<u32> {
-        let at = (at.0 as f64, at.1 as f64);
-        self.items
-            .values()
-            .into_iter()
-            .find(|el| {
-                if let Some(hitbox) = el.hitbox() {
-                    hitbox.contains(at)
-                } else {
-                    false
-                }
-            })
-            .map(|el| el.id())
+    // Returns a boolean indicating if the stack has items.
+    pub fn is_empty(&self) -> bool {
+        self.items.is_empty()
     }
 
-    pub fn set_layout_mode(
-        &mut self,
-        config: &ComputedConfig,
-        mode: LayoutMode,
-    ) -> Vec<StackCommand> {
+    // Finds an item that is at (x, y) position.
+    pub fn find_at(&self, at: (f32, f32)) -> Option<&Item> {
+        let at = (at.0 as f64, at.1 as f64);
+        self.items.values().into_iter().find(|el| {
+            if let Some(hitbox) = el.hitbox() {
+                hitbox.contains(at)
+            } else {
+                false
+            }
+        })
+    }
+
+    /// Updates the internal mode flag and returns a boolean indicating if
+    /// the operation was accepted.
+    pub fn set_layout_mode(&mut self, config: &ComputedConfig, mode: LayoutMode) -> bool {
         if self.layout_mode != mode {
             log::info!("stack.set_layout_mode: {:?}", mode);
 
             self.layout_mode = mode;
             self.layout(config);
 
-            vec![StackCommand::Redraw]
+            true
         } else {
-            vec![]
+            false
         }
     }
 
     // TODO: Lock the items.
-    /// Push a new item on the stack.
-    pub fn push(
-        &mut self,
-        config: &ComputedConfig,
-        notification: Notification,
-    ) -> Vec<StackCommand> {
+    /// Push a new item on the stack and returns a boolean indicating if
+    /// the operation was accepted.
+    pub fn push(&mut self, config: &ComputedConfig, notification: Notification) -> bool {
         log::info!("stack.push: {:?}", notification.id());
         let mut item = Item::new(config, notification);
 
@@ -115,51 +99,41 @@ impl Stack {
         self.items.insert(item.id(), item);
         self.layout(config);
 
-        vec![StackCommand::Redraw]
+        true
     }
 
     // TODO: Lock the items.
-    /// Remove an item from the stack.
-    pub fn dismiss(
-        &mut self,
-        config: &ComputedConfig,
-        id: u32,
-        reason: DismissReason,
-    ) -> Vec<StackCommand> {
+    /// Removes an item from the stack and returns a boolean indicating
+    /// if the operation was accepted.
+    pub fn dismiss(&mut self, config: &ComputedConfig, id: u32) -> bool {
         match self.items.get_mut(&id) {
             Some(item) if item.state() != State::Dismissed => {
                 item.set_state(State::Dismissed);
                 self.layout(config);
 
-                vec![
-                    StackCommand::NotifyDismissed(id, reason),
-                    StackCommand::Redraw,
-                ]
+                true
             }
-            _ => vec![],
+            _ => false,
         }
     }
 
-    pub fn dismiss_expired(&mut self, config: &ComputedConfig) -> Vec<StackCommand> {
-        let mut commands = vec![];
+    /// Remove expired items and returns a list of notifications that
+    /// were dismissed.
+    pub fn dismiss_expired(&mut self, config: &ComputedConfig) -> Vec<u32> {
+        let mut dismissals = vec![];
 
         for item in self.items.values_mut() {
             if item.notification().is_expired() && item.state() != State::Dismissed {
                 item.set_state(State::Dismissed);
-
-                commands.push(StackCommand::NotifyDismissed(
-                    item.id(),
-                    DismissReason::Expired,
-                ));
+                dismissals.push(item.id());
             }
         }
 
-        if !commands.is_empty() {
+        if !dismissals.is_empty() {
             self.layout(config);
-            commands.push(StackCommand::Redraw);
         }
 
-        commands
+        dismissals
     }
 
     pub fn layout(&mut self, config: &ComputedConfig) {

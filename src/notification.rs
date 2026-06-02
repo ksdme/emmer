@@ -1,5 +1,15 @@
 use std::time::{Duration, Instant};
 
+/// Represents an action on the notification.
+#[derive(Debug, Clone)]
+pub struct Action {
+    /// The human label for the action.
+    label: String,
+
+    /// The internal key of the action.
+    key: String,
+}
+
 /// Represents an incoming notification item.
 #[derive(Debug, Clone)]
 pub struct Notification {
@@ -12,6 +22,9 @@ pub struct Notification {
     /// The content of the notification.
     body: Option<String>,
 
+    /// The actions associated with the notification.
+    actions: Vec<Action>,
+
     /// The timeout of the notification.
     expire_at: Option<Instant>,
 }
@@ -19,7 +32,13 @@ pub struct Notification {
 impl Notification {
     // Build an instance of the notification from DBUS parameters.
     // https://specifications.freedesktop.org/notification/1.3/protocol.html
-    pub fn from_dbus_parts(id: u32, summary: String, body: String, expire_timeout: i32) -> Self {
+    pub fn from_dbus_parts(
+        id: u32,
+        summary: String,
+        body: String,
+        actions: Vec<String>,
+        expire_timeout: i32,
+    ) -> Self {
         Self {
             id,
 
@@ -34,6 +53,18 @@ impl Notification {
             } else {
                 Some(body.to_string())
             },
+
+            actions: actions
+                // https://specifications.freedesktop.org/notification/1.3/protocol.html#id-1.10.3.3.4
+                .chunks(2)
+                .filter_map(|action| match (action.get(0), action.get(1)) {
+                    (Some(key), Some(label)) => Some(Action {
+                        key: key.to_string(),
+                        label: label.to_string(),
+                    }),
+                    _ => None,
+                })
+                .collect(),
 
             expire_at: if expire_timeout == 0 {
                 None
@@ -55,6 +86,10 @@ impl Notification {
 
     pub fn body(&self) -> Option<&str> {
         self.body.as_deref()
+    }
+
+    pub fn actions(&self) -> &Vec<Action> {
+        &self.actions
     }
 
     /// Returns a boolean indicating if the notification has expired.

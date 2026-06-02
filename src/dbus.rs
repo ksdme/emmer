@@ -11,6 +11,7 @@ use crate::{UIMessage, notification::Notification};
 pub enum ServerMessage {
     Dismiss { id: u32, reason: u32 },
     ActivationToken { id: u32, token: String },
+    ActionInvoked { id: u32, key: String },
 }
 
 /// A dbus service for handling notification messages.
@@ -37,7 +38,7 @@ impl NotificationService {
         _app_icon: &str,
         summary: &str,
         body: &str,
-        _actions: Vec<String>,
+        actions: Vec<String>,
         _hints: std::collections::HashMap<String, zvariant::Value>,
         expire_timeout: i32,
     ) -> u32 {
@@ -49,6 +50,7 @@ impl NotificationService {
             id,
             summary.to_string(),
             body.to_string(),
+            actions,
             expire_timeout,
         ))) {
             // TODO: How else to handle the error?
@@ -84,5 +86,14 @@ impl NotificationService {
         signal_emitter: &SignalEmitter<'_>,
         id: u32,
         activation_token: String,
+    ) -> zbus::Result<()>;
+
+    /// A signal to indicate that a specific action was invoked on the notification
+    /// item.
+    #[zbus(signal)]
+    pub async fn action_invoked(
+        signal_emitter: &SignalEmitter<'_>,
+        id: u32,
+        action_key: String,
     ) -> zbus::Result<()>;
 }

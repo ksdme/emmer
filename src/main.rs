@@ -146,6 +146,13 @@ async fn run_server(
                         .context("Could not send activation token to: {id}")
                 );
             }
+            ServerMessage::ActionInvoked { id, key } => {
+                let _ = logged!(
+                    NotificationService::action_invoked(&signal_emitter, id, key)
+                        .await
+                        .context("Could not send action invocation to: {id}")
+                );
+            }
         }
     }
 

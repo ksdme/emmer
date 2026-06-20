@@ -1,6 +1,6 @@
 use pango::FontDescription;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Insets {
     /// The measure in the horizontal axis.
     pub x: f64,

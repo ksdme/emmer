@@ -1,6 +1,5 @@
-mod activation;
+pub mod activation;
 pub mod app;
-mod bounds;
 mod buffers;
-mod colors;
 mod items;
+mod renderables;

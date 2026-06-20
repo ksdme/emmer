@@ -131,12 +131,16 @@ async fn run_server(
 
     while let Some(msg) = server_rx.recv().await {
         match msg {
-            ServerMessage::Dismiss { id, reason } => {
+            ServerMessage::Closed { id, reason } => {
                 // https://specifications.freedesktop.org/notification/latest/protocol.html#id-1.10.4.2.4
                 let _ = logged!(
-                    NotificationService::notification_closed(&signal_emitter, id, reason)
-                        .await
-                        .context("Could not send notification closed message: {id}")
+                    NotificationService::notification_closed(
+                        &signal_emitter,
+                        id,
+                        u32::from(reason),
+                    )
+                    .await
+                    .context("Could not send notification closed message: {id}")
                 );
             }
             ServerMessage::ActivationToken { id, token } => {

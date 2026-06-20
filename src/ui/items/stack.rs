@@ -1,72 +1,155 @@
 use anyhow::{Context, Result};
+use smithay_client_toolkit::seat::pointer::{CursorIcon, PointerEvent};
 
 use std::{
     collections::{BTreeMap, HashSet},
+    sync::Arc,
     time::{Duration, Instant},
 };
 
 use crate::{
     config::ComputedConfig,
+    dbus::CloseReason,
     notification::Notification,
     ui::{
-        bounds::Rect,
-        items::{
-            item::{Item, State},
-            style::{PartialStyle, Style, Transition},
+        items::Item,
+        renderables::{
+            Rect,
+            notification::{PartialStyle, Style, Transition},
         },
     },
 };
 
-#[derive(Debug, Clone, PartialEq)]
-pub enum LayoutMode {
-    Spread,
-    Stacked,
+#[derive(Debug)]
+pub enum AppCommand {
+    Redraw,
+    SetCursor(CursorIcon),
+    NotifyClosed(u32, CloseReason),
 }
 
-/// The container for incoming items.
-pub struct Stack {
-    // TODO: Switch to something more efficient like a linked list.
-    // We need pushing to the top and efficient removal from middle.
-    items: BTreeMap<u32, Item>,
+/// Represents the presentation mode of the stack.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Presentation {
+    Stack,
+    List,
+}
 
-    // The layout mode the stack is currently rendering in.
-    layout_mode: LayoutMode,
+/// The container for the items.
+pub struct Stack {
+    config: Arc<ComputedConfig>,
+
+    items: BTreeMap<u32, Item>,
+    presentation: Presentation,
+
+    bounds: Option<Rect>,
 }
 
 impl Stack {
-    pub fn new() -> Self {
+    pub fn new(config: Arc<ComputedConfig>) -> Self {
         Self {
-            items: BTreeMap::new(),
+            config,
 
-            layout_mode: LayoutMode::Stacked,
+            items: BTreeMap::new(),
+            presentation: Presentation::Stack,
+
+            bounds: None,
         }
     }
 
-    // Returns a boolean indicating if the stack has items.
-    pub fn is_empty(&self) -> bool {
-        self.items.is_empty()
-    }
+    /// Finds an item that is at (x, y) visual position on this stack.
+    pub fn find_at(&self, at: (f64, f64)) -> Option<&Item> {
+        for el in self.items.values().rev() {
+            if let Some(hitbox) = el.bounds() {
+                // TODO: Requires fixes when allowed alt anchors.
+                // Given that values are sorted, we can abort as soon as we
+                // find one item that is definitely out of the pointer box.
+                if hitbox.y1 > at.1 {
+                    break;
+                }
 
-    // Finds an item that is at (x, y) position.
-    pub fn find_at(&self, at: (f32, f32)) -> Option<&Item> {
-        let at = (at.0 as f64, at.1 as f64);
-        self.items.values().into_iter().find(|el| {
-            if let Some(hitbox) = el.hitbox() {
-                hitbox.contains(at)
-            } else {
-                false
+                if hitbox.contains(at) {
+                    return Some(el);
+                }
             }
-        })
+        }
+
+        None
     }
 
-    /// Updates the internal mode flag and returns a boolean indicating if
-    /// the operation was accepted.
-    pub fn set_layout_mode(&mut self, config: &ComputedConfig, mode: LayoutMode) -> bool {
-        if self.layout_mode != mode {
-            log::info!("stack.set_layout_mode: {:?}", mode);
+    // TODO: Lock the items.
+    /// Pushes an item to the stack and returns a list of resulting side effects.
+    pub fn push(&mut self, notification: Notification) -> Vec<AppCommand> {
+        log::info!("stack.push: {:?}", notification.id());
+        let mut item = Item::new(&self.config, notification);
 
-            self.layout_mode = mode;
-            self.layout(config);
+        let (w, h) = item.content_size();
+        item.set_style(Style {
+            x: self.config.margin.x,
+            y: match self.presentation {
+                Presentation::List => self.config.margin.y - self.config.spread.gap - h,
+                Presentation::Stack => -self.config.margin.y,
+            },
+
+            w,
+            h,
+
+            outer_opacity: 1.,
+            inner_opacity: 1.,
+        });
+
+        self.items.insert(item.id(), item);
+        self.recompute_layout();
+
+        vec![AppCommand::Redraw]
+    }
+
+    // TODO: Lock the items.
+    /// Removes an item from the stack and returns a list of resulting
+    /// side effects.
+    fn dismiss(&mut self, id: u32) -> Vec<AppCommand> {
+        if let Some(item) = self.items.get_mut(&id)
+            && !item.is_dimissed()
+        {
+            item.mark_dismissed();
+            self.recompute_layout();
+
+            vec![
+                AppCommand::Redraw,
+                AppCommand::NotifyClosed(id, CloseReason::Manual),
+            ]
+        } else {
+            vec![]
+        }
+    }
+
+    /// Removes expired items from the stack and returns a list of resulting
+    /// side effects.
+    pub fn dismiss_expired(&mut self) -> Vec<AppCommand> {
+        let mut commands = vec![];
+
+        for item in self.items.values_mut() {
+            if item.notification().is_expired() && !item.is_dimissed() {
+                item.mark_dismissed();
+                commands.push(AppCommand::NotifyClosed(item.id(), CloseReason::Expired));
+            }
+        }
+
+        if !commands.is_empty() {
+            self.recompute_layout();
+            commands.push(AppCommand::Redraw);
+        }
+
+        commands
+    }
+
+    /// Updates the internal presentation flag and returns a boolean indicating
+    /// if the change was accepted.
+    fn set_presentation(&mut self, presentation: Presentation) -> bool {
+        if self.presentation != presentation {
+            log::info!("stack.set_presentation: {:?}", presentation);
+
+            self.presentation = presentation;
+            self.recompute_layout();
 
             true
         } else {
@@ -74,109 +157,43 @@ impl Stack {
         }
     }
 
-    // TODO: Lock the items.
-    /// Push a new item on the stack and returns a boolean indicating if
-    /// the operation was accepted.
-    pub fn push(&mut self, config: &ComputedConfig, notification: Notification) -> bool {
-        log::info!("stack.push: {:?}", notification.id());
-        let mut item = Item::new(config, notification);
-
-        let (_, h) = item.content_size(config);
-        item.set_style(Style {
-            x: config.margin.x,
-            y: match self.layout_mode {
-                LayoutMode::Spread => config.margin.y - config.spread.gap - h,
-                LayoutMode::Stacked => -config.margin.y,
-            },
-
-            w: config.width,
-            h,
-
-            box_opacity: 1.,
-            text_opacity: 1.,
-        });
-
-        self.items.insert(item.id(), item);
-        self.layout(config);
-
-        true
-    }
-
-    // TODO: Lock the items.
-    /// Removes an item from the stack and returns a boolean indicating
-    /// if the operation was accepted.
-    pub fn dismiss(&mut self, config: &ComputedConfig, id: u32) -> bool {
-        match self.items.get_mut(&id) {
-            Some(item) if item.state() != State::Dismissed => {
-                item.set_state(State::Dismissed);
-                self.layout(config);
-
-                true
-            }
-            _ => false,
-        }
-    }
-
-    /// Remove expired items and returns a list of notifications that
-    /// were dismissed.
-    pub fn dismiss_expired(&mut self, config: &ComputedConfig) -> Vec<u32> {
-        let mut dismissals = vec![];
-
-        for item in self.items.values_mut() {
-            if item.notification().is_expired() && item.state() != State::Dismissed {
-                item.set_state(State::Dismissed);
-                dismissals.push(item.id());
-            }
-        }
-
-        if !dismissals.is_empty() {
-            self.layout(config);
-        }
-
-        dismissals
-    }
-
-    pub fn layout(&mut self, config: &ComputedConfig) {
+    fn recompute_layout(&mut self) {
         let now = Instant::now();
-        match self.layout_mode {
-            LayoutMode::Spread => self.layout_spread(config, now),
-            LayoutMode::Stacked => self.layout_stack(config, now),
+        match self.presentation {
+            Presentation::List => self.recompute_layout_list(now),
+            Presentation::Stack => self.recompute_layout_stack(now),
         }
     }
 
-    fn layout_spread(&mut self, config: &ComputedConfig, now: Instant) {
+    fn recompute_layout_list(&mut self, now: Instant) {
         let mut no = 0;
-        let mut top_y = config.margin.y;
+        let mut top_y = self.config.margin.y;
 
         for (_, item) in self.items.iter_mut().rev() {
-            let item_state = item.state();
-            let (item_w, item_h) = item.content_size(config);
+            let (item_w, item_h) = item.content_size();
 
             // Show the first config.spread.max_count items.
-            if no <= config.spread.max_count {
+            if no <= self.config.spread.max_count {
                 let target = Style {
-                    x: config.margin.x,
-                    y: match item_state {
-                        State::Alive => top_y,
-                        State::Dismissed => top_y - item_h,
+                    x: self.config.margin.x,
+                    y: if item.is_dimissed() {
+                        top_y - item_h
+                    } else {
+                        top_y
                     },
 
                     w: item_w,
                     h: item_h,
 
-                    box_opacity: match item_state {
-                        State::Alive => 1.,
-                        State::Dismissed => 0.,
-                    },
-                    text_opacity: match item_state {
-                        State::Alive => 1.,
-                        State::Dismissed => 0.,
-                    },
+                    outer_opacity: if item.is_dimissed() { 0. } else { 1. },
+                    inner_opacity: if item.is_dimissed() { 0. } else { 1. },
                 };
 
-                if item_state == State::Alive {
+                // If the item is dismissed we want the content to be overlaid
+                // on top of this one, so, we don't increase offset.
+                if !item.is_dimissed() {
                     no += 1;
-                    top_y = top_y + target.h + config.spread.gap;
+                    top_y = top_y + target.h + self.config.spread.gap;
                 }
 
                 item.set_transitions(vec![Transition::new(
@@ -189,14 +206,14 @@ impl Stack {
                 // It doesn't matter if all the other items sit are on top of each other
                 // because they won't be visible.
                 let target = Style {
-                    x: config.margin.x,
-                    y: top_y + config.spread.gap,
+                    x: self.config.margin.x,
+                    y: top_y + self.config.spread.gap,
 
                     w: item_w,
                     h: item_h,
 
-                    box_opacity: 0.,
-                    text_opacity: 0.,
+                    outer_opacity: 0.,
+                    inner_opacity: 0.,
                 };
 
                 item.set_transitions(
@@ -212,36 +229,31 @@ impl Stack {
         }
     }
 
-    pub fn layout_stack(&mut self, config: &ComputedConfig, now: Instant) {
-        let stack_max_count = config.stack.max_count as f64;
+    fn recompute_layout_stack(&mut self, now: Instant) {
+        let stack_max_count = self.config.stack.max_count as f64;
 
         let mut no = 0.;
-        let mut top_y = config.margin.y;
+        let mut top_y = self.config.margin.y;
 
         for (_, item) in self.items.iter_mut().rev() {
-            let item_state = item.state();
-            let (item_w, item_h) = item.content_size(config);
+            let (item_w, item_h) = item.content_size();
 
             // Renders the first item as a regular block.
             if no == 0. {
                 let target = Style {
-                    x: config.margin.x,
+                    x: self.config.margin.x,
                     y: top_y,
 
                     w: item_w,
                     h: item_h,
 
-                    box_opacity: match item_state {
-                        State::Alive => 1.,
-                        State::Dismissed => 0.,
-                    },
-                    text_opacity: match item_state {
-                        State::Alive => 1.,
-                        State::Dismissed => 0.,
-                    },
+                    outer_opacity: if item.is_dimissed() { 0. } else { 1. },
+                    inner_opacity: if item.is_dimissed() { 0. } else { 1. },
                 };
 
-                if item_state == State::Alive {
+                // If the item is dismissed we want the content to be overlaid
+                // on top of this one, so, we don't increase offset.
+                if !item.is_dimissed() {
                     no += 1.;
                     top_y = target.y + target.h;
                 }
@@ -255,22 +267,21 @@ impl Stack {
                 // Render the stack entries.
 
                 // The height of the card should be smaller than the top-most card.
-                let h = item_h.min(top_y - config.margin.y);
+                let h = item_h.min(top_y - self.config.margin.y);
                 let target = PartialStyle {
-                    x: Some(config.margin.x + no * config.stack.inset),
-                    y: Some(top_y + config.stack.peek - h),
+                    x: Some(self.config.margin.x + no * self.config.stack.inset),
+                    y: Some(top_y + self.config.stack.peek - h),
 
-                    w: Some(config.width - 2. * no * config.stack.inset),
+                    w: Some(self.config.width - 2. * no * self.config.stack.inset),
                     h: Some(h),
 
-                    box_opacity: Some(match item_state {
-                        State::Alive => 1.,
-                        State::Dismissed => 0.,
-                    }),
-                    text_opacity: Some(0.),
+                    outer_opacity: Some(if item.is_dimissed() { 0. } else { 1. }),
+                    inner_opacity: Some(0.),
                 };
 
-                if item_state == State::Alive {
+                // If the item is dismissed we want the content to be overlaid
+                // on top of this one, so, we don't increase offset.
+                if !item.is_dimissed() {
                     no += 1.;
                     top_y = target.y.unwrap_or_default() + target.h.unwrap_or_default();
                 }
@@ -288,21 +299,21 @@ impl Stack {
                     Transition::new(
                         Duration::from_millis(200),
                         PartialStyle {
-                            x: Some(config.margin.x + max_no * config.stack.inset),
-                            y: Some(top_y - config.stack.peek),
+                            x: Some(self.config.margin.x + max_no * self.config.stack.inset),
+                            y: Some(top_y - self.config.stack.peek),
 
-                            w: Some(config.width - 2. * max_no * config.stack.inset),
-                            h: Some(2. * config.stack.peek),
+                            w: Some(self.config.width - 2. * max_no * self.config.stack.inset),
+                            h: Some(2. * self.config.stack.peek),
 
-                            box_opacity: Some(0.),
-                            text_opacity: None,
+                            outer_opacity: Some(0.),
+                            inner_opacity: None,
                         },
                         Some(now),
                     ),
                     Transition::new(
                         Duration::from_millis(25),
                         PartialStyle {
-                            text_opacity: Some(0.),
+                            inner_opacity: Some(0.),
                             ..Default::default()
                         },
                         Some(now),
@@ -312,13 +323,54 @@ impl Stack {
         }
     }
 
+    /// The handler for when a pointer left click happens within the bounds of
+    /// this stack.
+    pub fn on_left_click(&mut self, _event: &PointerEvent) -> Vec<AppCommand> {
+        vec![]
+    }
+
+    /// The handler for when a pointer right click happens within the bounds of
+    /// this stack.
+    pub fn on_right_click(&mut self, event: &PointerEvent) -> Vec<AppCommand> {
+        if let Some(item) = self.find_at(event.position) {
+            self.dismiss(item.id())
+        } else {
+            vec![]
+        }
+    }
+
+    /// The handler for when a pointer is hovering within the bounds of this
+    /// stack.
+    pub fn on_hover(&mut self, event: &PointerEvent) -> Vec<AppCommand> {
+        let item = self.find_at(event.position);
+
+        if let Some(_) = item {
+            let mut commands = vec![AppCommand::SetCursor(CursorIcon::Pointer)];
+
+            if self.set_presentation(Presentation::List) {
+                commands.push(AppCommand::Redraw);
+            }
+
+            commands
+        } else {
+            vec![]
+        }
+    }
+
+    /// The handler for when the pointer leaves the bounds of this stack.
+    /// This method is only expected to be called once after a leave happens.
+    pub fn on_leave(&mut self) -> Vec<AppCommand> {
+        self.set_presentation(Presentation::Stack);
+
+        vec![
+            AppCommand::Redraw,
+            AppCommand::SetCursor(CursorIcon::Default),
+        ]
+    }
+
     // Renders the stack to the cairo canvas and returns a bool indicating if all the item
     // transitions have settled and the visual bounds of the stack.
-    pub fn render(
-        &mut self,
-        config: &ComputedConfig,
-        cx: &cairo::Context,
-    ) -> Result<(bool, Option<Rect>)> {
+    pub fn render(&mut self, cx: &cairo::Context) -> Result<(Option<Rect>, bool)> {
         let now = Instant::now();
 
         let mut settled = true;
@@ -329,11 +381,9 @@ impl Stack {
             let item_settled = item.tick(&now);
 
             // Render and update the scene bounds.
-            let bounds = item
-                .render(config, cx)
-                .context("Could not render item: {id}")?;
+            let bounds = item.render(cx).context("Could not render item: {id}")?;
 
-            let fb = full_bounds.get_or_insert(bounds.clone());
+            let fb = full_bounds.get_or_insert(bounds);
             fb.x1 = fb.x1.min(bounds.x1);
             fb.y1 = fb.y1.min(bounds.y1);
             fb.x2 = fb.x2.max(bounds.x2);
@@ -341,7 +391,7 @@ impl Stack {
 
             // If the item was marked as dismissed, and the transition
             // around it has settled, then, remove.
-            if item_settled && item.state() == State::Dismissed {
+            if item_settled && item.is_dimissed() {
                 settled_dismissals.insert(*id);
             }
 
@@ -352,6 +402,11 @@ impl Stack {
             self.items.retain(|id, _| !settled_dismissals.contains(id));
         }
 
-        Ok((settled, full_bounds))
+        self.bounds = full_bounds;
+        Ok((full_bounds, settled))
+    }
+
+    pub fn bounds(&self) -> Option<&Rect> {
+        self.bounds.as_ref()
     }
 }

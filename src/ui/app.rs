@@ -1,8 +1,8 @@
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 use anyhow::{Context, Result, anyhow};
 use smithay_client_toolkit::{
-    activation::{ActivationHandler, ActivationState, RequestData},
+    activation::{ActivationHandler, ActivationState},
     compositor::{CompositorHandler, CompositorState, Region},
     delegate_activation, delegate_compositor, delegate_layer, delegate_output, delegate_pointer,
     delegate_registry, delegate_seat, delegate_shm,
@@ -11,7 +11,7 @@ use smithay_client_toolkit::{
     registry_handlers,
     seat::{
         Capability, SeatHandler, SeatState,
-        pointer::{BTN_LEFT, BTN_RIGHT, PointerHandler, ThemeSpec, ThemedPointer},
+        pointer::{BTN_LEFT, BTN_RIGHT, CursorIcon, PointerHandler, ThemeSpec, ThemedPointer},
     },
     shell::{
         WaylandSurface,
@@ -35,13 +35,15 @@ use crate::{
     ui::{
         activation::ActivationRequestData,
         buffers::BufferPool,
-        items::{Item, LayoutMode, Stack},
+        items::{Stack, stack::AppCommand},
     },
 };
 
 /// The top level Wayland client.
 pub struct App {
     server_tx: tokio::sync::mpsc::UnboundedSender<ServerMessage>,
+
+    conn: Connection,
     queue_handle: QueueHandle<Self>,
 
     registry_state: RegistryState,
@@ -53,16 +55,19 @@ pub struct App {
 
     seat: Option<WlSeat>,
     pointer: Option<ThemedPointer>,
-    activation_state: ActivationState,
+    cursor_icon: Option<CursorIcon>,
+    _activation_state: ActivationState,
 
     shm: Shm,
     buffer_pool: Mutex<BufferPool<3>>,
+
+    config: Arc<ComputedConfig>,
 
     width: i32,
     height: i32,
 
     stack: Stack,
-    config: ComputedConfig,
+    stack_hovering: bool,
 }
 
 // Required for compositor delegation.
@@ -198,64 +203,49 @@ delegate_shm!(App);
 impl PointerHandler for App {
     fn pointer_frame(
         &mut self,
-        conn: &Connection,
-        qh: &wayland_client::QueueHandle<Self>,
+        _conn: &Connection,
+        _qh: &wayland_client::QueueHandle<Self>,
         _pointer: &wayland_client::protocol::wl_pointer::WlPointer,
         events: &[smithay_client_toolkit::seat::pointer::PointerEvent],
     ) {
         log::trace!(target: "emmer::wl::pointer", "shm_state");
 
         for e in events {
-            match e.kind {
-                smithay_client_toolkit::seat::pointer::PointerEventKind::Release {
-                    time: _,
-                    button,
-                    serial,
-                } => {
-                    log::trace!(target: "emmer::wl::pointer", "frame release");
+            let hit = self.stack.bounds().is_some_and(|b| b.contains(e.position));
+            if hit {
+                match e.kind {
+                    smithay_client_toolkit::seat::pointer::PointerEventKind::Release {
+                        time: _,
+                        button,
+                        serial: _,
+                    } => {
+                        log::trace!(target: "emmer::wl::pointer", "frame release");
+                        self.stack_hovering = true;
 
-                    if button == BTN_LEFT {
-                        let Some(id) = self.find_at((e.position.0 as f32, e.position.1 as f32))
-                        else {
-                            log::warn!(target: "emmer::wl::pointer", "Could not find target item");
-                            break;
+                        let commands = match button {
+                            BTN_LEFT => self.stack.on_left_click(e),
+                            BTN_RIGHT => self.stack.on_right_click(e),
+                            _ => continue,
                         };
-                        break;
-                    } else if button == BTN_RIGHT {
-                        let Some(item) = self.find_at((e.position.0 as f32, e.position.1 as f32))
-                        else {
-                            log::warn!(target: "emmer::wl::pointer", "Could not find target item");
-                            break;
-                        };
+                        let _ = self.handle_commands(commands);
+                    }
+                    smithay_client_toolkit::seat::pointer::PointerEventKind::Motion { time: _ } => {
+                        log::trace!(target: "emmer::wl::pointer", "motion");
+                        self.stack_hovering = true;
 
-                        let _ = logged!(self.on_dismiss(item.id()));
-                        break;
+                        let commands = self.stack.on_hover(e);
+                        let _ = self.handle_commands(commands);
                     }
+                    _ => {}
                 }
-                smithay_client_toolkit::seat::pointer::PointerEventKind::Enter { serial: _ } => {
-                    log::trace!(target: "emmer::wl::pointer", "switched to spread");
-                    let _ = logged!(self.set_layout_mode(LayoutMode::Spread));
-                    break;
-                }
-                smithay_client_toolkit::seat::pointer::PointerEventKind::Leave { serial: _ } => {
-                    log::trace!(target: "emmer::wl::pointer", "switching to stacked");
-                    let _ = logged!(self.set_layout_mode(LayoutMode::Stacked));
-                    break;
-                }
-                smithay_client_toolkit::seat::pointer::PointerEventKind::Motion { time: _ } => {
-                    log::trace!(target: "emmer::wl::pointer", "motion");
-                    if let Some(pointer) = self.pointer.as_ref() {
-                        let _ = logged!(
-                            pointer
-                                .set_cursor(
-                                    conn,
-                                    smithay_client_toolkit::seat::pointer::CursorIcon::Pointer,
-                                )
-                                .context("Could not change cursor")
-                        );
-                    }
-                }
-                _ => {}
+            }
+
+            if self.stack_hovering && !hit {
+                self.stack_hovering = false;
+
+                // TODO: We should check the type of the event?
+                let commands = self.stack.on_leave();
+                let _ = self.handle_commands(commands);
             }
         }
     }
@@ -375,7 +365,7 @@ impl App {
         conn: &Connection,
         server_tx: tokio::sync::mpsc::UnboundedSender<ServerMessage>,
     ) -> Result<(Self, EventQueue<Self>)> {
-        let config = ComputedConfig::from(Config {
+        let config = Arc::new(ComputedConfig::from(Config {
             margin: Insets { x: 32., y: 32. },
             padding: Insets { x: 12., y: 12. },
             spread: SpreadConfig {
@@ -392,7 +382,7 @@ impl App {
                 body_font_description: "JetBrainsMono Nerd Font Mono 10".to_string(),
             },
             width: 320.,
-        });
+        }));
 
         let (globals, event_queue) =
             registry_queue_init::<Self>(conn).context("Could not create wayland queue")?;
@@ -436,6 +426,8 @@ impl App {
         Ok((
             App {
                 server_tx,
+
+                conn: conn.clone(),
                 queue_handle: q_handle,
 
                 registry_state,
@@ -447,16 +439,19 @@ impl App {
 
                 seat: None,
                 pointer: None,
-                activation_state,
+                cursor_icon: None,
+                _activation_state: activation_state,
 
                 shm,
                 buffer_pool: Mutex::new(buffer_pool),
 
+                config: config.clone(),
+
                 width: 0,
                 height: 0,
 
-                stack: Stack::new(),
-                config,
+                stack: Stack::new(config),
+                stack_hovering: false,
             },
             event_queue,
         ))
@@ -518,10 +513,7 @@ impl App {
         .context("Could not create cairo surface")?;
         let cr = cairo::Context::new(&surface).context("Could not create cairo context")?;
 
-        let (transitions_settled, bounds) = self
-            .stack
-            .render(&self.config, &cr)
-            .context("Could not render stack")?;
+        let (bounds, settled) = self.stack.render(&cr).context("Could not render stack")?;
 
         // Update the input region.
         if let Some(bounds) = bounds {
@@ -529,8 +521,8 @@ impl App {
             region.add(
                 bounds.x1 as i32 - 8,
                 bounds.y1 as i32 - 8,
-                (bounds.x2 - bounds.x1) as i32 + 8,
-                self.height.min((bounds.y2 - bounds.y1) as i32 + 8),
+                bounds.w() as i32 + 16,
+                self.height.min(bounds.h() as i32 + 16),
             );
             wl_surface.set_input_region(Some(region.wl_region()));
         }
@@ -542,7 +534,7 @@ impl App {
             .context("Could not attach buffer")?;
 
         wl_surface.damage_buffer(0, 0, self.width, self.height);
-        if !transitions_settled {
+        if !settled {
             wl_surface.frame(&self.queue_handle, wl_surface.clone());
         }
 
@@ -551,51 +543,50 @@ impl App {
         Ok(())
     }
 
-    pub fn find_at(&self, at: (f32, f32)) -> Option<&Item> {
-        self.stack.find_at(at)
-    }
-
     pub fn push(&mut self, notification: notification::Notification) -> Result<()> {
-        if self.stack.push(&self.config, notification) {
-            self.draw().context("Could not draw")
-        } else {
-            Ok(())
-        }
-    }
-
-    pub fn on_dismiss(&mut self, id: u32) -> Result<()> {
-        if self.stack.dismiss(&self.config, id) {
-            self.server_tx
-                .send(ServerMessage::Dismiss { id: id, reason: 2 })
-                .context("Could not send closed signal")?;
-
-            self.draw().context("Could not draw")
-        } else {
-            Ok(())
-        }
+        let commands = self.stack.push(notification);
+        self.handle_commands(commands)
     }
 
     pub fn dismiss_expired(&mut self) -> Result<()> {
-        let dismissals = self.stack.dismiss_expired(&self.config);
-        if dismissals.is_empty() {
-            Ok(())
-        } else {
-            for id in dismissals.iter() {
-                self.server_tx
-                    .send(ServerMessage::Dismiss { id: *id, reason: 1 })
-                    .context("Could not send closed signal")?;
-            }
-
-            self.draw().context("Could not draw")
-        }
+        let commands = self.stack.dismiss_expired();
+        self.handle_commands(commands)
     }
+}
 
-    pub fn set_layout_mode(&mut self, mode: LayoutMode) -> Result<()> {
-        if self.stack.set_layout_mode(&self.config, mode) {
-            self.draw().context("Could not draw")
-        } else {
-            Ok(())
+impl App {
+    pub fn handle_commands(&mut self, commands: Vec<AppCommand>) -> Result<()> {
+        for c in commands {
+            match c {
+                AppCommand::Redraw => {
+                    let _ = logged!(self.draw().context("Could not process draw command"));
+                }
+                AppCommand::SetCursor(cursor_icon) => {
+                    if let Some(pointer) = self.pointer.as_ref()
+                        && self.cursor_icon != Some(cursor_icon)
+                    {
+                        let _ = logged!(
+                            pointer
+                                .set_cursor(&self.conn, cursor_icon)
+                                .context("Could not update the cursor")
+                        );
+                        self.cursor_icon = Some(cursor_icon);
+                    }
+                }
+                AppCommand::NotifyClosed(id, close_reason) => {
+                    let _ = logged!(
+                        self.server_tx
+                            .send(ServerMessage::Closed {
+                                id: id,
+                                reason: close_reason,
+                            })
+                            .context("Could not send closed signal")
+                    );
+                }
+            }
         }
+
+        Ok(())
     }
 }
 

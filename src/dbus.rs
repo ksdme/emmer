@@ -6,10 +6,25 @@ use zbus::{interface, object_server::SignalEmitter, zvariant};
 
 use crate::{UIMessage, notification::Notification};
 
+#[derive(Debug)]
+pub enum CloseReason {
+    Expired,
+    Manual,
+}
+
+impl From<CloseReason> for u32 {
+    fn from(v: CloseReason) -> Self {
+        match v {
+            CloseReason::Expired => 1,
+            CloseReason::Manual => 2,
+        }
+    }
+}
+
 // Represents a message from the UI thread to the server thread.
 #[derive(Debug)]
 pub enum ServerMessage {
-    Dismiss { id: u32, reason: u32 },
+    Closed { id: u32, reason: CloseReason },
     ActivationToken { id: u32, token: String },
     ActionInvoked { id: u32, key: String },
 }

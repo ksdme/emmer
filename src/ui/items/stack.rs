@@ -81,7 +81,7 @@ impl Stack {
     /// Pushes an item to the stack and returns a list of resulting side effects.
     pub fn push(&mut self, notification: Notification) -> Vec<AppCommand> {
         log::info!("stack.push: {:?}", notification.id());
-        let mut item = Item::new(&self.config, notification);
+        let mut item = Item::new(self.config.clone(), notification);
 
         let (w, h) = item.content_size();
         item.set_style(Style {
@@ -352,7 +352,7 @@ impl Stack {
 
             commands
         } else {
-            vec![]
+            vec![AppCommand::SetCursor(CursorIcon::Default)]
         }
     }
 
@@ -399,6 +399,16 @@ impl Stack {
 
         if !settled_dismissals.is_empty() {
             self.items.retain(|id, _| !settled_dismissals.contains(id));
+        }
+
+        #[cfg(debug_assertions)]
+        if self.config.debug_mode
+            && let Some(b) = full_bounds
+        {
+            cx.new_path();
+            cx.set_source_rgba(255., 0., 0., 0.5);
+            cx.rectangle(b.x1, b.y1, b.w(), b.h());
+            let _ = cx.stroke();
         }
 
         self.bounds = full_bounds;

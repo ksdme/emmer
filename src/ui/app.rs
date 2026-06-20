@@ -29,7 +29,7 @@ use wayland_client::{
 };
 
 use crate::{
-    config::{ComputedConfig, Config, Insets, SpreadConfig, StackConfig, ThemeConfig},
+    config::ComputedConfig,
     dbus::ServerMessage,
     logged, notification,
     ui::{
@@ -212,6 +212,7 @@ impl PointerHandler for App {
 
         for e in events {
             let hit = self.stack.bounds().is_some_and(|b| b.contains(e.position));
+
             if hit {
                 match e.kind {
                     smithay_client_toolkit::seat::pointer::PointerEventKind::Release {
@@ -362,27 +363,11 @@ delegate_registry!(App);
 impl App {
     /// Initialize the app using a wayland connection.
     pub fn init(
+        config: ComputedConfig,
         conn: &Connection,
         server_tx: tokio::sync::mpsc::UnboundedSender<ServerMessage>,
     ) -> Result<(Self, EventQueue<Self>)> {
-        let config = Arc::new(ComputedConfig::from(Config {
-            margin: Insets { x: 32., y: 32. },
-            padding: Insets { x: 12., y: 12. },
-            spread: SpreadConfig {
-                gap: 8.,
-                max_count: 20,
-            },
-            stack: StackConfig {
-                peek: 8.,
-                inset: 8.,
-                max_count: 3,
-            },
-            theme: ThemeConfig {
-                title_font_description: "JetBrainsMono Nerd Font Mono Bold 10".to_string(),
-                body_font_description: "JetBrainsMono Nerd Font Mono 10".to_string(),
-            },
-            width: 320.,
-        }));
+        let config = Arc::new(config);
 
         let (globals, event_queue) =
             registry_queue_init::<Self>(conn).context("Could not create wayland queue")?;
@@ -511,20 +496,29 @@ impl App {
             )
         }
         .context("Could not create cairo surface")?;
-        let cr = cairo::Context::new(&surface).context("Could not create cairo context")?;
+        let cx = cairo::Context::new(&surface).context("Could not create cairo context")?;
 
-        let (bounds, settled) = self.stack.render(&cr).context("Could not render stack")?;
+        let (bounds, settled) = self.stack.render(&cx).context("Could not render stack")?;
 
         // Update the input region.
         if let Some(bounds) = bounds {
-            let region = Region::new(&self.compositor_state).context("Could not create region")?;
-            region.add(
-                bounds.x1 as i32 - 8,
-                bounds.y1 as i32 - 8,
+            let (x, y) = (bounds.x1 as i32 - 8, bounds.y1 as i32 - 8);
+            let (w, h) = (
                 bounds.w() as i32 + 16,
                 self.height.min(bounds.h() as i32 + 16),
             );
+
+            let region = Region::new(&self.compositor_state).context("Could not create region")?;
+            region.add(x, y, w, h);
             wl_surface.set_input_region(Some(region.wl_region()));
+
+            #[cfg(debug_assertions)]
+            if self.config.debug_mode {
+                cx.new_path();
+                cx.set_source_rgba(0., 255., 0., 0.5);
+                cx.rectangle(x as f64, y as f64, w as f64, h as f64);
+                let _ = cx.stroke();
+            }
         }
 
         // Request an update to the frame.

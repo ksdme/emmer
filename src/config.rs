@@ -90,8 +90,9 @@ impl From<ThemeConfig> for Theme {
 /// Represents a prepared configuration.
 #[derive(Debug)]
 pub struct ComputedConfig {
-    pub width: f64,
+    pub debug_mode: bool,
 
+    pub width: f64,
     pub margin: Insets,
     pub padding: Insets,
 
@@ -101,11 +102,12 @@ pub struct ComputedConfig {
     pub theme: Theme,
 }
 
-impl From<Config> for ComputedConfig {
-    fn from(config: Config) -> Self {
+impl ComputedConfig {
+    pub fn new(debug_mode: bool, config: Config) -> Self {
         Self {
-            width: config.width,
+            debug_mode,
 
+            width: config.width,
             margin: config.margin,
             padding: config.padding,
 

@@ -1,4 +1,4 @@
-use std::time::Instant;
+use std::{sync::Arc, time::Instant};
 
 use anyhow::{Context, Result};
 
@@ -14,6 +14,8 @@ use crate::{
 /// Represents a logical notification item.
 #[derive(Debug)]
 pub struct Item {
+    config: Arc<ComputedConfig>,
+
     notification: Notification,
     dismissed: bool,
 
@@ -25,9 +27,11 @@ pub struct Item {
 }
 
 impl Item {
-    pub fn new(config: &ComputedConfig, notification: Notification) -> Self {
-        let notification_r = NotificationRenderable::new(config, &notification);
+    pub fn new(config: Arc<ComputedConfig>, notification: Notification) -> Self {
+        let notification_r = NotificationRenderable::new(&config, &notification);
         Self {
+            config,
+
             notification,
             dismissed: false,
 
@@ -81,6 +85,14 @@ impl Item {
             .notification_r
             .render(cr, &self.style)
             .context("Could not render notification")?;
+
+        #[cfg(debug_assertions)]
+        if self.config.debug_mode {
+            cr.new_path();
+            cr.set_source_rgba(0., 0., 255., 0.5);
+            cr.rectangle(bounds.x1, bounds.y1, bounds.w(), bounds.h());
+            let _ = cr.stroke();
+        }
 
         self.bounds = Some(bounds);
         Ok(bounds)

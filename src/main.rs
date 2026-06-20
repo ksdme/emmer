@@ -1,6 +1,7 @@
 use std::{thread, time::Duration};
 
 use anyhow::{Context, Result, anyhow};
+use clap::Parser;
 use smithay_client_toolkit::reexports::{
     calloop::{self, EventLoop, channel},
     calloop_wayland_source::WaylandSource,
@@ -9,6 +10,7 @@ use wayland_client::Connection;
 use zbus::{connection, object_server::SignalEmitter};
 
 use crate::{
+    config::{ComputedConfig, Config, Insets, SpreadConfig, StackConfig, ThemeConfig},
     dbus::{NotificationService, ServerMessage},
     ui::app::{App, UIMessage},
 };
@@ -19,8 +21,19 @@ mod notification;
 mod ui;
 mod utils;
 
+#[derive(clap::Parser)]
+#[command(version, about, long_about = None)]
+struct Args {
+    /// Run the app in debug mode
+    #[cfg(debug_assertions)]
+    #[arg(long, default_value_t = false)]
+    debug_mode: bool,
+}
+
 fn main() -> Result<()> {
     env_logger::init();
+
+    let args = Args::parse();
 
     let (startup_tx, startup_rx) = std::sync::mpsc::channel::<Result<()>>();
     let (ui_tx, ui_rx) = calloop::channel::channel::<UIMessage>();
@@ -45,7 +58,7 @@ fn main() -> Result<()> {
         .context("Could not start notification dbus service")?;
 
     // Start the UI on the main thread.
-    run_ui(ui_rx, server_tx).context("Could not run ui")?;
+    run_ui(&args, ui_rx, server_tx).context("Could not run ui")?;
 
     service_thread
         .join()
@@ -56,12 +69,35 @@ fn main() -> Result<()> {
 
 // Start the UI loop.
 fn run_ui(
+    args: &Args,
     ui_rx: channel::Channel<UIMessage>,
     server_tx: tokio::sync::mpsc::UnboundedSender<ServerMessage>,
 ) -> Result<()> {
+    let config = ComputedConfig::new(
+        args.debug_mode,
+        Config {
+            margin: Insets { x: 32., y: 32. },
+            padding: Insets { x: 12., y: 12. },
+            spread: SpreadConfig {
+                gap: 8.,
+                max_count: 20,
+            },
+            stack: StackConfig {
+                peek: 8.,
+                inset: 8.,
+                max_count: 3,
+            },
+            theme: ThemeConfig {
+                title_font_description: "JetBrainsMono Nerd Font Mono Bold 10".to_string(),
+                body_font_description: "JetBrainsMono Nerd Font Mono 10".to_string(),
+            },
+            width: 320.,
+        },
+    );
+
     let conn = Connection::connect_to_env().context("Could not connect to wayland")?;
-    let (mut app, event_queue) =
-        ui::app::App::init(&conn, server_tx).context("Could not initialize wayland client")?;
+    let (mut app, event_queue) = ui::app::App::init(config, &conn, server_tx)
+        .context("Could not initialize wayland client")?;
 
     let mut main_loop = EventLoop::<App>::try_new().context("Could not initialize main loop")?;
 

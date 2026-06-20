@@ -117,7 +117,7 @@ impl NotificationRenderable {
             // The title.
             let content_y = match &self.title_r {
                 Some(title) => {
-                    let (_, h) = title.render(cr, content_x, content_y, fg.clone());
+                    let (_, h) = title.render(cr, content_x, content_y, fg);
                     content_y + h + 8.
                 }
                 None => content_y,

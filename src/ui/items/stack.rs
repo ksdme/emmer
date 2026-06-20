@@ -56,6 +56,7 @@ impl Stack {
         }
     }
 
+    // TODO: This needs to be as efficient as possible.
     /// Finds an item that is at (x, y) visual position on this stack.
     pub fn find_at(&self, at: (f64, f64)) -> Option<&Item> {
         for el in self.items.values().rev() {
@@ -342,9 +343,7 @@ impl Stack {
     /// The handler for when a pointer is hovering within the bounds of this
     /// stack.
     pub fn on_hover(&mut self, event: &PointerEvent) -> Vec<AppCommand> {
-        let item = self.find_at(event.position);
-
-        if let Some(_) = item {
+        if let Some(_) = self.find_at(event.position) {
             let mut commands = vec![AppCommand::SetCursor(CursorIcon::Pointer)];
 
             if self.set_presentation(Presentation::List) {

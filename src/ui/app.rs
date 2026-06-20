@@ -577,7 +577,7 @@ impl App {
                     let _ = logged!(
                         self.server_tx
                             .send(ServerMessage::Closed {
-                                id: id,
+                                id,
                                 reason: close_reason,
                             })
                             .context("Could not send closed signal")

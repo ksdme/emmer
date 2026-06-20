@@ -57,7 +57,7 @@ impl Notification {
             actions: actions
                 // https://specifications.freedesktop.org/notification/1.3/protocol.html#id-1.10.3.3.4
                 .chunks(2)
-                .filter_map(|action| match (action.get(0), action.get(1)) {
+                .filter_map(|action| match (action.first(), action.get(1)) {
                     (Some(key), Some(label)) => Some(Action {
                         key: key.to_string(),
                         label: label.to_string(),

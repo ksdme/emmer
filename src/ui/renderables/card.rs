@@ -6,9 +6,9 @@ use crate::ui::renderables::{Color, Rect};
 
 /// Represents a generic box.
 #[derive(Debug)]
-pub struct CardRenderable;
+pub struct Renderable;
 
-impl CardRenderable {
+impl Renderable {
     pub fn new() -> Self {
         Self {}
     }

@@ -2,13 +2,13 @@ use crate::ui::renderables::Color;
 
 /// Renders a piece of text using pango with caching.
 #[derive(Debug)]
-pub struct TextRenderable {
+pub struct Renderable {
     layout: pango::Layout,
     w: f64,
     h: f64,
 }
 
-impl TextRenderable {
+impl Renderable {
     /// Returns a new Text renderable that caches the content shape and layout
     /// while constraing and wrapping it.
     pub fn new(

@@ -13,10 +13,7 @@ use crate::{
     notification::Notification,
     ui::{
         items::Item,
-        renderables::{
-            Rect,
-            notification::{PartialStyle, Style, Transition},
-        },
+        renderables::{Rect, notification},
     },
 };
 
@@ -84,7 +81,7 @@ impl Stack {
         let mut item = Item::new(self.config.clone(), notification);
 
         let (w, h) = item.content_size();
-        item.set_style(Style {
+        item.set_style(notification::Style {
             x: self.config.margin.x,
             y: match self.presentation {
                 Presentation::List => self.config.margin.y - self.config.spread.gap - h,
@@ -175,7 +172,7 @@ impl Stack {
 
             // Show the first config.spread.max_count items.
             if no <= self.config.spread.max_count {
-                let target = Style {
+                let target = notification::Style {
                     x: self.config.margin.x,
                     y: if item.is_dimissed() {
                         top_y - item_h
@@ -197,7 +194,7 @@ impl Stack {
                     top_y = top_y + target.h + self.config.spread.gap;
                 }
 
-                item.set_transitions(vec![Transition::new(
+                item.set_transitions(vec![notification::StyleTransition::new(
                     Duration::from_millis(200),
                     target.into(),
                     Some(now),
@@ -206,7 +203,7 @@ impl Stack {
                 // The rest of the items should naturally just go sit at the bottom.
                 // It doesn't matter if all the other items sit are on top of each other
                 // because they won't be visible.
-                let target = Style {
+                let target = notification::Style {
                     x: self.config.margin.x,
                     y: top_y + self.config.spread.gap,
 
@@ -220,7 +217,7 @@ impl Stack {
                 item.set_transitions(
                     // We are using a transition here instead of setting the value
                     // immediately so a new item will also act as expected.
-                    vec![Transition::new(
+                    vec![notification::StyleTransition::new(
                         Duration::from_millis(200),
                         target.into(),
                         Some(now),
@@ -241,7 +238,7 @@ impl Stack {
 
             // Renders the first item as a regular block.
             if no == 0. {
-                let target = Style {
+                let target = notification::Style {
                     x: self.config.margin.x,
                     y: top_y,
 
@@ -259,7 +256,7 @@ impl Stack {
                     top_y = target.y + target.h;
                 }
 
-                item.set_transitions(vec![Transition::new(
+                item.set_transitions(vec![notification::StyleTransition::new(
                     Duration::from_millis(200),
                     target.into(),
                     Some(now),
@@ -269,7 +266,7 @@ impl Stack {
 
                 // The height of the card should be smaller than the top-most card.
                 let h = item_h.min(top_y - self.config.margin.y);
-                let target = PartialStyle {
+                let target = notification::PartialStyle {
                     x: Some(self.config.margin.x + no * self.config.stack.inset),
                     y: Some(top_y + self.config.stack.peek - h),
 
@@ -287,7 +284,7 @@ impl Stack {
                     top_y = target.y.unwrap_or_default() + target.h.unwrap_or_default();
                 }
 
-                item.set_transitions(vec![Transition::new(
+                item.set_transitions(vec![notification::StyleTransition::new(
                     Duration::from_millis(200),
                     target,
                     Some(now),
@@ -297,9 +294,9 @@ impl Stack {
                 let max_no = stack_max_count + 1.;
 
                 item.set_transitions(vec![
-                    Transition::new(
+                    notification::StyleTransition::new(
                         Duration::from_millis(200),
-                        PartialStyle {
+                        notification::PartialStyle {
                             x: Some(self.config.margin.x + max_no * self.config.stack.inset),
                             y: Some(top_y - self.config.stack.peek),
 
@@ -311,9 +308,9 @@ impl Stack {
                         },
                         Some(now),
                     ),
-                    Transition::new(
+                    notification::StyleTransition::new(
                         Duration::from_millis(25),
-                        PartialStyle {
+                        notification::PartialStyle {
                             inner_opacity: Some(0.),
                             ..Default::default()
                         },

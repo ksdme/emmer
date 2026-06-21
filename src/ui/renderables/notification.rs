@@ -1,28 +1,23 @@
-use std::{
-    ops::Div,
-    time::{Duration, Instant},
-};
-
 use anyhow::{Context, Result};
 
 use crate::{
     config::{ComputedConfig, Insets},
     notification::Notification,
-    ui::renderables::{Color, Rect, card::CardRenderable, text::TextRenderable},
+    ui::renderables::{Color, Rect, card, text},
 };
 
 /// Renders a notification card.
 #[derive(Debug)]
-pub struct NotificationRenderable {
+pub struct Renderable {
     width: f64,
     padding: Insets,
 
-    title_r: Option<TextRenderable>,
-    body_r: Option<TextRenderable>,
-    card_r: CardRenderable,
+    card_r: card::Renderable,
+    title_r: Option<text::Renderable>,
+    body_r: Option<text::Renderable>,
 }
 
-impl NotificationRenderable {
+impl Renderable {
     pub fn new(config: &ComputedConfig, notification: &Notification) -> Self {
         // TODO: This should be a calculated value available here instead.
         let inner_w = (config.width - 2. * config.padding.x) as i32;
@@ -30,8 +25,9 @@ impl NotificationRenderable {
             width: config.width,
             padding: config.padding.clone(),
 
+            card_r: card::Renderable::new(),
             title_r: notification.title().map(|title| {
-                TextRenderable::new(
+                text::Renderable::new(
                     &config.theme.font_map,
                     &config.theme.title_font_description,
                     Some(inner_w),
@@ -40,7 +36,7 @@ impl NotificationRenderable {
                 )
             }),
             body_r: notification.body().map(|body| {
-                TextRenderable::new(
+                text::Renderable::new(
                     &config.theme.font_map,
                     &config.theme.body_font_description,
                     Some(inner_w),
@@ -48,7 +44,6 @@ impl NotificationRenderable {
                     body,
                 )
             }),
-            card_r: CardRenderable::new(),
         }
     }
 
@@ -140,119 +135,17 @@ impl NotificationRenderable {
     }
 }
 
-/// Represents the visual style of the notification renderable.
-#[derive(Clone, Default, Debug)]
-pub struct Style {
-    pub w: f64,
-    pub h: f64,
+transitionable!(
+    // Represents the box style and the contents style of the notification
+    // renderable.
+    Style {
+        w: f64,
+        h: f64,
 
-    pub x: f64,
-    pub y: f64,
+        x: f64,
+        y: f64,
 
-    pub outer_opacity: f64,
-    pub inner_opacity: f64,
-}
-
-impl From<Style> for PartialStyle {
-    fn from(val: Style) -> Self {
-        PartialStyle {
-            w: Some(val.w),
-            h: Some(val.h),
-
-            x: Some(val.x),
-            y: Some(val.y),
-
-            inner_opacity: Some(val.inner_opacity),
-            outer_opacity: Some(val.outer_opacity),
-        }
+        inner_opacity: f64,
+        outer_opacity: f64,
     }
-}
-
-/// Represents a style object that can be used for property
-/// based transitions.
-#[derive(Debug, Default)]
-pub struct PartialStyle {
-    pub w: Option<f64>,
-    pub h: Option<f64>,
-
-    pub x: Option<f64>,
-    pub y: Option<f64>,
-
-    pub inner_opacity: Option<f64>,
-    pub outer_opacity: Option<f64>,
-}
-
-/// Represents the parameters of a transition of a Style into another.
-#[derive(Debug)]
-pub struct Transition {
-    start_at: Instant,
-    duration: Duration,
-
-    from: Option<Style>,
-    to: PartialStyle,
-}
-
-macro_rules! interp {
-    ($target:expr, $from:expr, $current:expr, $progress:expr) => {
-        if let Some(target) = $target
-            && target != $from
-        {
-            $from + (target - $from) * $progress
-        } else {
-            $current
-        }
-    };
-}
-
-impl Transition {
-    /// Returns a new transition to target_state with a shared clock.
-    pub fn new(duration: Duration, to: PartialStyle, start_at: Option<Instant>) -> Self {
-        Self {
-            start_at: start_at.unwrap_or_else(Instant::now),
-            duration,
-
-            from: None,
-            to,
-        }
-    }
-
-    /// Interpolates the transition to an Instant.
-    pub fn interpolate(&mut self, current: &Style, now: &Instant) -> (Style, bool) {
-        // The progress of the transition as [0, 1].
-        let progress = now
-            .checked_duration_since(self.start_at)
-            .unwrap_or_default()
-            .as_secs_f64()
-            .div(self.duration.as_secs_f64())
-            .clamp(0., 1.);
-
-        // The first interpolation request is treated as the starting point of
-        // the transition.
-        let from = self.from.get_or_insert_with(|| current.clone());
-
-        // Return an interpolated visual state along with a boolean indicating if the
-        // transition is complete.
-        let to = &self.to;
-        (
-            Style {
-                w: interp!(to.w, from.w, current.w, progress),
-                h: interp!(to.h, from.h, current.h, progress),
-                x: interp!(to.x, from.x, current.x, progress),
-                y: interp!(to.y, from.y, current.y, progress),
-                outer_opacity: interp!(
-                    to.outer_opacity,
-                    from.outer_opacity,
-                    current.outer_opacity,
-                    progress
-                ),
-                inner_opacity: interp!(
-                    to.inner_opacity,
-                    from.inner_opacity,
-                    current.inner_opacity,
-                    progress
-                ),
-            },
-            progress >= 1.,
-        )
-    }
-}
+);

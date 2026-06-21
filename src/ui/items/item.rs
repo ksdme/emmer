@@ -5,10 +5,7 @@ use anyhow::{Context, Result};
 use crate::{
     config::ComputedConfig,
     notification::Notification,
-    ui::renderables::{
-        Rect,
-        notification::{NotificationRenderable, Style, Transition},
-    },
+    ui::renderables::{Rect, notification},
 };
 
 /// Represents a logical notification item.
@@ -19,26 +16,26 @@ pub struct Item {
     notification: Notification,
     dismissed: bool,
 
-    style: Style,
-    transitions: Vec<Transition>,
+    notification_r: notification::Renderable,
+    style: notification::Style,
+    transitions: Vec<notification::StyleTransition>,
 
-    notification_r: NotificationRenderable,
     bounds: Option<Rect>,
 }
 
 impl Item {
     pub fn new(config: Arc<ComputedConfig>, notification: Notification) -> Self {
-        let notification_r = NotificationRenderable::new(&config, &notification);
+        let notification_r = notification::Renderable::new(&config, &notification);
         Self {
             config,
 
             notification,
             dismissed: false,
 
-            style: Style::default(),
+            notification_r,
+            style: notification::Style::default(),
             transitions: vec![],
 
-            notification_r,
             bounds: None,
         }
     }
@@ -55,11 +52,11 @@ impl Item {
         self.dismissed
     }
 
-    pub fn set_style(&mut self, style: Style) {
+    pub fn set_style(&mut self, style: notification::Style) {
         self.style = style;
     }
 
-    pub fn set_transitions(&mut self, transitions: Vec<Transition>) {
+    pub fn set_transitions(&mut self, transitions: Vec<notification::StyleTransition>) {
         self.transitions = transitions;
     }
 

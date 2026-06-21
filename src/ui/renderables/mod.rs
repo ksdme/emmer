@@ -132,7 +132,7 @@ macro_rules! transitionable {
                 }
             }
 
-            impl crate::ui::renderables::Transitionable for $name {
+            impl $crate::ui::renderables::Transitionable for $name {
                 type Partial = [<Partial $name>];
 
                 fn interpolate(&self, to: &Self::Partial, progress: f64) -> $name {

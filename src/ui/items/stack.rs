@@ -4,7 +4,7 @@ use smithay_client_toolkit::seat::pointer::{CursorIcon, PointerEvent};
 use std::{
     collections::{BTreeMap, HashSet},
     sync::Arc,
-    time::{Duration, Instant},
+    time::Instant,
 };
 
 use crate::{
@@ -12,7 +12,7 @@ use crate::{
     dbus::CloseReason,
     notification::Notification,
     ui::{
-        items::Item,
+        items::{Item, item::VisualState},
         renderables::{Rect, notification},
     },
 };
@@ -28,7 +28,7 @@ pub enum AppCommand {
 #[derive(Debug, Clone, PartialEq)]
 pub enum Presentation {
     Stack,
-    List,
+    Spread,
 }
 
 /// The container for the items.
@@ -78,14 +78,18 @@ impl Stack {
     /// Pushes an item to the stack and returns a list of resulting side effects.
     pub fn push(&mut self, notification: Notification) -> Vec<AppCommand> {
         log::info!("stack.push: {:?}", notification.id());
-        let mut item = Item::new(self.config.clone(), notification);
+        let mut item = Item::new(
+            self.config.clone(),
+            notification,
+            VisualState::Hidden { y: 0. },
+        );
 
         let (w, h) = item.content_size();
         item.set_style(notification::Style {
             x: self.config.margin.x,
             y: match self.presentation {
-                Presentation::List => self.config.margin.y - self.config.spread.gap - h,
                 Presentation::Stack => -self.config.margin.y,
+                Presentation::Spread => self.config.margin.y - self.config.spread.gap - h,
             },
 
             w,
@@ -96,7 +100,7 @@ impl Stack {
         });
 
         self.items.insert(item.id(), item);
-        self.recompute_layout();
+        self.update_visual_states();
 
         vec![AppCommand::Redraw]
     }
@@ -109,7 +113,7 @@ impl Stack {
             && !item.is_dimissed()
         {
             item.mark_dismissed();
-            self.recompute_layout();
+            self.update_visual_states();
 
             vec![
                 AppCommand::Redraw,
@@ -133,7 +137,7 @@ impl Stack {
         }
 
         if !commands.is_empty() {
-            self.recompute_layout();
+            self.update_visual_states();
             commands.push(AppCommand::Redraw);
         }
 
@@ -147,7 +151,7 @@ impl Stack {
             log::info!("stack.set_presentation: {:?}", presentation);
 
             self.presentation = presentation;
-            self.recompute_layout();
+            self.update_visual_states();
 
             true
         } else {
@@ -155,168 +159,49 @@ impl Stack {
         }
     }
 
-    fn recompute_layout(&mut self) {
+    fn update_visual_states(&mut self) {
         let now = Instant::now();
+
         match self.presentation {
-            Presentation::List => self.recompute_layout_list(now),
-            Presentation::Stack => self.recompute_layout_stack(now),
-        }
-    }
+            Presentation::Stack => {
+                let mut no = 0;
+                let mut top_y = self.config.margin.y;
 
-    fn recompute_layout_list(&mut self, now: Instant) {
-        let mut no = 0;
-        let mut top_y = self.config.margin.y;
+                for (_, item) in self.items.iter_mut().rev() {
+                    if no <= self.config.stack.max_count {
+                        let y =
+                            item.set_visual_state(VisualState::Stacked { pos: no, y: top_y }, now);
 
-        for (_, item) in self.items.iter_mut().rev() {
-            let (item_w, item_h) = item.content_size();
-
-            // Show the first config.spread.max_count items.
-            if no <= self.config.spread.max_count {
-                let target = notification::Style {
-                    x: self.config.margin.x,
-                    y: if item.is_dimissed() {
-                        top_y - item_h
+                        // If an item is dismissed, then we expect that the next item replaces
+                        // its visual position.
+                        if !item.is_dimissed() {
+                            no += 1;
+                            top_y = y;
+                        }
                     } else {
-                        top_y
-                    },
-
-                    w: item_w,
-                    h: item_h,
-
-                    outer_opacity: if item.is_dimissed() { 0. } else { 1. },
-                    inner_opacity: if item.is_dimissed() { 0. } else { 1. },
-                };
-
-                // If the item is dismissed we want the content to be overlaid
-                // on top of this one, so, we don't increase offset.
-                if !item.is_dimissed() {
-                    no += 1;
-                    top_y = top_y + target.h + self.config.spread.gap;
+                        let _ = item.set_visual_state(VisualState::Hidden { y: top_y }, now);
+                    }
                 }
-
-                item.set_transitions(vec![notification::StyleTransition::new(
-                    Duration::from_millis(200),
-                    target.into(),
-                    Some(now),
-                )]);
-            } else {
-                // The rest of the items should naturally just go sit at the bottom.
-                // It doesn't matter if all the other items sit are on top of each other
-                // because they won't be visible.
-                let target = notification::Style {
-                    x: self.config.margin.x,
-                    y: top_y + self.config.spread.gap,
-
-                    w: item_w,
-                    h: item_h,
-
-                    outer_opacity: 0.,
-                    inner_opacity: 0.,
-                };
-
-                item.set_transitions(
-                    // We are using a transition here instead of setting the value
-                    // immediately so a new item will also act as expected.
-                    vec![notification::StyleTransition::new(
-                        Duration::from_millis(200),
-                        target.into(),
-                        Some(now),
-                    )],
-                );
             }
-        }
-    }
 
-    fn recompute_layout_stack(&mut self, now: Instant) {
-        let stack_max_count = self.config.stack.max_count as f64;
+            Presentation::Spread => {
+                let mut no = 0;
+                let mut top_y = self.config.margin.y;
 
-        let mut no = 0.;
-        let mut top_y = self.config.margin.y;
+                for (_, item) in self.items.iter_mut().rev() {
+                    if no <= self.config.spread.max_count {
+                        let y = item.set_visual_state(VisualState::Spread { y: top_y }, now);
 
-        for (_, item) in self.items.iter_mut().rev() {
-            let (item_w, item_h) = item.content_size();
-
-            // Renders the first item as a regular block.
-            if no == 0. {
-                let target = notification::Style {
-                    x: self.config.margin.x,
-                    y: top_y,
-
-                    w: item_w,
-                    h: item_h,
-
-                    outer_opacity: if item.is_dimissed() { 0. } else { 1. },
-                    inner_opacity: if item.is_dimissed() { 0. } else { 1. },
-                };
-
-                // If the item is dismissed we want the content to be overlaid
-                // on top of this one, so, we don't increase offset.
-                if !item.is_dimissed() {
-                    no += 1.;
-                    top_y = target.y + target.h;
+                        // If an item is dismissed, then we expect that the next item replaces
+                        // its visual position.
+                        if !item.is_dimissed() {
+                            no += 1;
+                            top_y = y;
+                        }
+                    } else {
+                        let _ = item.set_visual_state(VisualState::Hidden { y: top_y }, now);
+                    }
                 }
-
-                item.set_transitions(vec![notification::StyleTransition::new(
-                    Duration::from_millis(200),
-                    target.into(),
-                    Some(now),
-                )]);
-            } else if no < stack_max_count {
-                // Render the stack entries.
-
-                // The height of the card should be smaller than the top-most card.
-                let h = item_h.min(top_y - self.config.margin.y);
-                let target = notification::PartialStyle {
-                    x: Some(self.config.margin.x + no * self.config.stack.inset),
-                    y: Some(top_y + self.config.stack.peek - h),
-
-                    w: Some(self.config.width - 2. * no * self.config.stack.inset),
-                    h: Some(h),
-
-                    outer_opacity: Some(if item.is_dimissed() { 0. } else { 1. }),
-                    inner_opacity: Some(0.),
-                };
-
-                // If the item is dismissed we want the content to be overlaid
-                // on top of this one, so, we don't increase offset.
-                if !item.is_dimissed() {
-                    no += 1.;
-                    top_y = target.y.unwrap_or_default() + target.h.unwrap_or_default();
-                }
-
-                item.set_transitions(vec![notification::StyleTransition::new(
-                    Duration::from_millis(200),
-                    target,
-                    Some(now),
-                )]);
-            } else {
-                // Render the rest of the items as hidden.
-                let max_no = stack_max_count + 1.;
-
-                item.set_transitions(vec![
-                    notification::StyleTransition::new(
-                        Duration::from_millis(200),
-                        notification::PartialStyle {
-                            x: Some(self.config.margin.x + max_no * self.config.stack.inset),
-                            y: Some(top_y - self.config.stack.peek),
-
-                            w: Some(self.config.width - 2. * max_no * self.config.stack.inset),
-                            h: Some(2. * self.config.stack.peek),
-
-                            outer_opacity: Some(0.),
-                            inner_opacity: None,
-                        },
-                        Some(now),
-                    ),
-                    notification::StyleTransition::new(
-                        Duration::from_millis(25),
-                        notification::PartialStyle {
-                            inner_opacity: Some(0.),
-                            ..Default::default()
-                        },
-                        Some(now),
-                    ),
-                ]);
             }
         }
     }
@@ -330,8 +215,8 @@ impl Stack {
     /// The handler for when a pointer right click happens within the bounds of
     /// this stack.
     pub fn on_right_click(&mut self, event: &PointerEvent) -> Vec<AppCommand> {
-        if let Some(item) = self.find_at(event.position) {
-            self.dismiss(item.id())
+        if let Some(id) = self.find_at(event.position).map(|el| el.id()) {
+            self.dismiss(id)
         } else {
             vec![]
         }
@@ -343,7 +228,7 @@ impl Stack {
         if let Some(_) = self.find_at(event.position) {
             let mut commands = vec![AppCommand::SetCursor(CursorIcon::Pointer)];
 
-            if self.set_presentation(Presentation::List) {
+            if self.set_presentation(Presentation::Spread) {
                 commands.push(AppCommand::Redraw);
             }
 
@@ -377,13 +262,13 @@ impl Stack {
             let item_settled = item.tick(&now);
 
             // Render and update the scene bounds.
-            let bounds = item.render(cx).context("Could not render item: {id}")?;
-
-            let fb = full_bounds.get_or_insert(bounds);
-            fb.x1 = fb.x1.min(bounds.x1);
-            fb.y1 = fb.y1.min(bounds.y1);
-            fb.x2 = fb.x2.max(bounds.x2);
-            fb.y2 = fb.y2.max(bounds.y2);
+            if let Some(bounds) = item.render(cx).context("Could not render item: {id}")? {
+                let fb = full_bounds.get_or_insert(bounds);
+                fb.x1 = fb.x1.min(bounds.x1);
+                fb.y1 = fb.y1.min(bounds.y1);
+                fb.x2 = fb.x2.max(bounds.x2);
+                fb.y2 = fb.y2.max(bounds.y2);
+            }
 
             // If the item was marked as dismissed, and the transition
             // around it has settled, then, remove.

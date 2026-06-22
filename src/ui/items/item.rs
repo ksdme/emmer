@@ -117,8 +117,7 @@ impl Item {
                     inner_opacity: Some(0.),
                 };
 
-                let transition =
-                    notification::StyleTransition::new(duration, target, Some(now));
+                let transition = notification::StyleTransition::new(duration, target, Some(now));
 
                 (vec![transition], y + self.config.stack.peek)
             }

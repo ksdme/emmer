@@ -168,7 +168,7 @@ impl Stack {
                 let mut top_y = self.config.margin.y;
 
                 for (_, item) in self.items.iter_mut().rev() {
-                    if no <= self.config.stack.max_count {
+                    if no < self.config.stack.max_count {
                         let y =
                             item.set_visual_state(VisualState::Stacked { pos: no, y: top_y }, now);
 
@@ -189,7 +189,7 @@ impl Stack {
                 let mut top_y = self.config.margin.y;
 
                 for (_, item) in self.items.iter_mut().rev() {
-                    if no <= self.config.spread.max_count {
+                    if no < self.config.spread.max_count {
                         let y = item.set_visual_state(VisualState::Spread { y: top_y }, now);
 
                         // If an item is dismissed, then we expect that the next item replaces

@@ -15,7 +15,7 @@ pub struct Renderable {
 }
 
 impl Renderable {
-    pub fn new(config: &ComputedConfig, label: String, padding: Insets) -> Self {
+    pub fn new(config: &ComputedConfig, label: &str, padding: Insets) -> Self {
         Self {
             padding,
 
@@ -25,7 +25,7 @@ impl Renderable {
                 &config.theme.body_font_description,
                 None,
                 None,
-                &label,
+                label,
             ),
         }
     }
@@ -35,18 +35,18 @@ impl Renderable {
         (2. * self.padding.x + label_w, 2. * self.padding.y + label_h)
     }
 
-    pub fn render(&self, cr: &cairo::Context, style: &Style) -> Result<Rect> {
+    pub fn render(&self, cr: &cairo::Context, style: &Style, x: f64, y: f64) -> Result<Rect> {
         let (w, h) = self.content_size();
 
         let bounds = self
             .card_r
             .render(
                 cr,
-                style.x,
-                style.y,
+                x,
+                y,
                 w,
                 h,
-                Color::from_rgba_u8(52, 52, 52, 1.),
+                Color::from_rgba_u8(52, 52, 52, 1.).lighter(style.light),
                 1.5,
                 Some(Color::from_rgba_u8(102, 102, 102, 1.)),
                 8.,
@@ -55,8 +55,8 @@ impl Renderable {
 
         let _ = self.label_r.render(
             cr,
-            style.x + self.padding.x,
-            style.y + self.padding.y,
+            x + self.padding.x,
+            y + self.padding.y,
             Color::from_rgba_u8(255, 255, 255, 1.),
         );
 
@@ -66,5 +66,5 @@ impl Renderable {
 
 transitionable!(
     // The style of a button renderable.
-    Style { x: f64, y: f64 }
+    Style { light: f64 }
 );

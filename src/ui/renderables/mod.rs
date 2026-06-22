@@ -21,6 +21,15 @@ impl Color {
             a,
         }
     }
+
+    pub fn lighter(&self, amount: f64) -> Color {
+        Color {
+            r: self.r + (1. - self.r) * amount,
+            g: self.g + (1. - self.g) * amount,
+            b: self.b + (1. - self.b) * amount,
+            a: self.a + (1. - self.a) * amount,
+        }
+    }
 }
 
 /// Represents a rect used to represent hitboxes/bounds.

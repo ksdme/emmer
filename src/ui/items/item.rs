@@ -6,7 +6,7 @@ use std::{
 use anyhow::{Context, Result};
 
 use crate::{
-    config::ComputedConfig,
+    config::{ComputedConfig, Insets},
     notification::{Action, Notification},
     ui::{
         items::stack::Presentation,
@@ -47,7 +47,7 @@ pub struct Item {
     notif_transition: Option<notification::StyleTransition>,
     notif_bounds: Option<Rect>,
 
-    action_buttons: Vec<(Action, ActionButton)>,
+    action_buttons: Vec<ActionButton>,
     buttons: bool,
 
     bounds: Option<Rect>,
@@ -76,6 +76,20 @@ impl Item {
             inner_opacity: 1.,
         };
 
+        let action_buttons: Vec<ActionButton> = notif
+            .actions()
+            .iter()
+            .map(|action| ActionButton {
+                action: action.clone(),
+
+                r: button::Renderable::new(&config, action.label(), Insets { x: 16., y: 8. }),
+                style: button::Style { light: 0. },
+                transition: None,
+
+                bounds: None,
+            })
+            .collect();
+
         Self {
             config,
 
@@ -88,8 +102,8 @@ impl Item {
             notif_transition: None,
             notif_bounds: None,
 
-            action_buttons: vec![],
-            buttons: false,
+            action_buttons,
+            buttons: true,
 
             bounds: None,
         }
@@ -219,18 +233,20 @@ impl Item {
         };
 
         // Progress the action buttons.
-        let mut buttons_complete = false;
+        let mut buttons_complete = true;
         for button in self.action_buttons.iter_mut() {
-            if let Some(button_t) = button.1.transition.as_mut() {
-                let (style, complete) = button_t.interpolate(&button.1.style, now);
+            buttons_complete &= if let Some(button_t) = button.transition.as_mut() {
+                let (style, complete) = button_t.interpolate(&button.style, now);
 
-                button.1.style = style;
+                button.style = style;
                 if complete {
-                    button.1.transition = None;
+                    button.transition = None;
                 }
 
-                buttons_complete |= complete;
-            }
+                complete
+            } else {
+                true
+            };
         }
 
         notif_complete & buttons_complete
@@ -266,11 +282,10 @@ impl Item {
 
             for button in self.action_buttons.iter_mut() {
                 let button_bounds = button
-                    .1
                     .r
-                    .render(cr, &button.1.style, x, y)
+                    .render(cr, &button.style, x, y)
                     .context("Could not draw")?;
-                button.1.bounds = Some(button_bounds);
+                button.bounds = Some(button_bounds);
 
                 x = button_bounds.x2 + gap;
             }

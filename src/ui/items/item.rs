@@ -7,8 +7,11 @@ use anyhow::{Context, Result};
 
 use crate::{
     config::ComputedConfig,
-    notification::Notification,
-    ui::renderables::{Rect, notification},
+    notification::{Action, Notification},
+    ui::{
+        items::stack::Presentation,
+        renderables::{Rect, button, notification},
+    },
 };
 
 #[derive(Debug, PartialEq, Clone, Copy)]
@@ -16,6 +19,18 @@ pub enum VisualState {
     Stacked { pos: usize, y: f64 },
     Spread { y: f64 },
     Hidden { y: f64 },
+}
+
+/// Represents an action button.
+#[derive(Debug)]
+pub struct ActionButton {
+    action: Action,
+
+    r: button::Renderable,
+    style: button::Style,
+    transition: Option<button::StyleTransition>,
+
+    bounds: Option<Rect>,
 }
 
 /// Represents a logical notification item.
@@ -26,42 +41,66 @@ pub struct Item {
     visual_state: VisualState,
     dismissed: bool,
 
-    notification: Notification,
-    notification_r: notification::Renderable,
-    notification_s: notification::Style,
-    notification_t: Vec<notification::StyleTransition>,
+    notif: Notification,
+    notif_r: notification::Renderable,
+    notif_style: notification::Style,
+    notif_transition: Option<notification::StyleTransition>,
+    notif_bounds: Option<Rect>,
+
+    action_buttons: Vec<(Action, ActionButton)>,
+    buttons: bool,
 
     bounds: Option<Rect>,
 }
 
 impl Item {
-    pub fn new(
+    pub fn spawn(
+        notif: Notification,
         config: Arc<ComputedConfig>,
-        notification: Notification,
-        visual_state: VisualState,
+        presentation: &Presentation,
     ) -> Self {
-        let notification_r = notification::Renderable::new(&config, &notification);
+        let notif_r = notification::Renderable::new(&config, &notif);
+
+        let (w, h) = notif_r.content_size();
+        let notif_style = notification::Style {
+            x: config.margin.x,
+            y: match presentation {
+                Presentation::Stack => -config.margin.y,
+                Presentation::Spread => config.margin.y - config.spread.gap - h,
+            },
+
+            w,
+            h,
+
+            outer_opacity: 1.,
+            inner_opacity: 1.,
+        };
+
         Self {
             config,
 
-            visual_state,
+            visual_state: VisualState::Hidden { y: 0. },
             dismissed: false,
 
-            notification,
-            notification_r,
-            notification_s: notification::Style::default(),
-            notification_t: vec![],
+            notif,
+            notif_r,
+            notif_style,
+            notif_transition: None,
+            notif_bounds: None,
+
+            action_buttons: vec![],
+            buttons: false,
 
             bounds: None,
         }
     }
 
     pub fn id(&self) -> u32 {
-        self.notification.id()
+        self.notif.id()
     }
 
     pub fn notification(&self) -> &Notification {
-        &self.notification
+        &self.notif
     }
 
     pub fn is_dimissed(&self) -> bool {
@@ -72,10 +111,6 @@ impl Item {
         self.dismissed = true;
     }
 
-    pub fn set_style(&mut self, notification_s: notification::Style) {
-        self.notification_s = notification_s;
-    }
-
     /// Updates the transitions and the style of the item as per the visual state.
     /// Returns the y position that the next visual element can start at if it does not
     /// want to overlap with the current item.
@@ -84,8 +119,8 @@ impl Item {
         // The natural duration of a transition.
         let duration = Duration::from_millis(200);
 
-        let (w, h) = self.content_size();
-        let (transitions, y) = match visual_state {
+        let (w, h) = self.notif_r.content_size();
+        let (transition, y) = match visual_state {
             VisualState::Stacked { pos, y } if pos == 0 => {
                 let target = notification::Style {
                     x: self.config.margin.x,
@@ -98,10 +133,10 @@ impl Item {
                     inner_opacity: if self.dismissed { 0. } else { 1. },
                 };
 
-                let transition =
-                    notification::StyleTransition::new(duration, target.into(), Some(now));
-
-                (vec![transition], y + h)
+                (
+                    notification::StyleTransition::new(duration, target.into(), Some(now)),
+                    y + h,
+                )
             }
 
             VisualState::Stacked { pos, y } => {
@@ -117,9 +152,10 @@ impl Item {
                     inner_opacity: Some(0.),
                 };
 
-                let transition = notification::StyleTransition::new(duration, target, Some(now));
-
-                (vec![transition], y + self.config.stack.peek)
+                (
+                    notification::StyleTransition::new(duration, target, Some(now)),
+                    y + self.config.stack.peek,
+                )
             }
 
             VisualState::Spread { y } => {
@@ -134,10 +170,10 @@ impl Item {
                     inner_opacity: if self.dismissed { 0. } else { 1. },
                 };
 
-                let transition =
-                    notification::StyleTransition::new(duration, target.into(), Some(now));
-
-                (vec![transition], y + h + self.config.spread.gap)
+                (
+                    notification::StyleTransition::new(duration, target.into(), Some(now)),
+                    y + h + self.config.spread.gap,
+                )
             }
 
             VisualState::Hidden { y } => {
@@ -152,57 +188,98 @@ impl Item {
                     inner_opacity: 0.,
                 };
 
-                let transition =
-                    notification::StyleTransition::new(duration, target.into(), Some(now));
-
-                (vec![transition], y + self.config.stack.peek)
+                (
+                    notification::StyleTransition::new(duration, target.into(), Some(now)),
+                    y + self.config.stack.peek,
+                )
             }
         };
 
         self.visual_state = visual_state;
-        self.notification_t = transitions;
+        self.notif_transition = Some(transition);
 
         y
     }
 
-    /// Progresses the transition attached to the item if any and a boolean indicating
-    /// if all the transitions have settled.
+    /// Progresses all the transition attached to the item and returns a boolean
+    /// indicating if all the transitions have completed.
     pub fn tick(&mut self, now: &Instant) -> bool {
-        self.notification_t.retain_mut(|transition| {
-            let (style, settled) = transition.interpolate(&self.notification_s, now);
-            self.notification_s = style;
-            !settled
-        });
+        // Progress the notification.
+        let notif_complete = if let Some(notif_t) = self.notif_transition.as_mut() {
+            let (style, complete) = notif_t.interpolate(&self.notif_style, now);
 
-        self.notification_t.is_empty()
+            self.notif_style = style;
+            if complete {
+                self.notif_transition = None;
+            }
+
+            complete
+        } else {
+            true
+        };
+
+        // Progress the action buttons.
+        let mut buttons_complete = false;
+        for button in self.action_buttons.iter_mut() {
+            if let Some(button_t) = button.1.transition.as_mut() {
+                let (style, complete) = button_t.interpolate(&button.1.style, now);
+
+                button.1.style = style;
+                if complete {
+                    button.1.transition = None;
+                }
+
+                buttons_complete |= complete;
+            }
+        }
+
+        notif_complete & buttons_complete
     }
 
     /// Renders the current item to a cairo canvas and returns its rect bounds.
     pub fn render(&mut self, cr: &cairo::Context) -> Result<Option<Rect>> {
-        // If the item is not visible, skip putting it on the canvas.
-        if self.notification_s.outer_opacity == 0. {
-            return Ok(None);
-        }
-
-        let bounds = self
-            .notification_r
-            .render(cr, &self.notification_s)
+        let notif_bounds = self
+            .notif_r
+            .render(cr, &self.notif_style)
             .context("Could not render notification")?;
+        self.notif_bounds = Some(notif_bounds);
 
         #[cfg(debug_assertions)]
         if self.config.debug_mode {
             cr.new_path();
             cr.set_source_rgba(0., 0., 255., 0.5);
-            cr.rectangle(bounds.x1, bounds.y1, bounds.w(), bounds.h());
+            cr.rectangle(
+                notif_bounds.x1,
+                notif_bounds.y1,
+                notif_bounds.w(),
+                notif_bounds.h(),
+            );
             let _ = cr.stroke();
+        }
+
+        let mut bounds = notif_bounds;
+        if self.buttons && self.action_buttons.len() > 0 {
+            let gap = 8.;
+
+            let mut x = notif_bounds.x1;
+            let y = notif_bounds.y2 + gap;
+
+            for button in self.action_buttons.iter_mut() {
+                let button_bounds = button
+                    .1
+                    .r
+                    .render(cr, &button.1.style, x, y)
+                    .context("Could not draw")?;
+                button.1.bounds = Some(button_bounds);
+
+                x = button_bounds.x2 + gap;
+            }
+
+            bounds.y2 = y;
         }
 
         self.bounds = Some(bounds);
         Ok(Some(bounds))
-    }
-
-    pub fn content_size(&self) -> (f64, f64) {
-        self.notification_r.content_size()
     }
 
     pub fn bounds(&self) -> Option<&Rect> {

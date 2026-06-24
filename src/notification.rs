@@ -10,6 +10,16 @@ pub struct Action {
     key: String,
 }
 
+impl Action {
+    pub fn key(&self) -> &str {
+        &self.key
+    }
+
+    pub fn label(&self) -> &str {
+        &self.label
+    }
+}
+
 /// Represents an incoming notification item.
 #[derive(Debug, Clone)]
 pub struct Notification {

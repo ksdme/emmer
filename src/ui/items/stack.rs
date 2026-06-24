@@ -13,7 +13,7 @@ use crate::{
     notification::Notification,
     ui::{
         items::{Item, item::VisualState},
-        renderables::{Rect, notification},
+        renderables::Rect,
     },
 };
 
@@ -78,26 +78,7 @@ impl Stack {
     /// Pushes an item to the stack and returns a list of resulting side effects.
     pub fn push(&mut self, notification: Notification) -> Vec<AppCommand> {
         log::info!("stack.push: {:?}", notification.id());
-        let mut item = Item::new(
-            self.config.clone(),
-            notification,
-            VisualState::Hidden { y: 0. },
-        );
-
-        let (w, h) = item.content_size();
-        item.set_style(notification::Style {
-            x: self.config.margin.x,
-            y: match self.presentation {
-                Presentation::Stack => -self.config.margin.y,
-                Presentation::Spread => self.config.margin.y - self.config.spread.gap - h,
-            },
-
-            w,
-            h,
-
-            outer_opacity: 1.,
-            inner_opacity: 1.,
-        });
+        let item = Item::spawn(notification, self.config.clone(), &self.presentation);
 
         self.items.insert(item.id(), item);
         self.update_visual_states();

@@ -46,10 +46,10 @@ impl Renderable {
                 y,
                 w,
                 h,
-                Color::from_rgba_u8(52, 52, 52, 1.).lighter(style.light),
+                Color::from_rgba_u8(52, 52, 52, style.opacity).lighter(style.light),
                 1.5,
-                Some(Color::from_rgba_u8(102, 102, 102, 1.)),
-                8.,
+                Some(Color::from_rgba_u8(102, 102, 102, style.opacity)),
+                4.,
             )
             .context("Could not draw background")?;
 
@@ -57,7 +57,7 @@ impl Renderable {
             cr,
             x + self.padding.x,
             y + self.padding.y,
-            Color::from_rgba_u8(255, 255, 255, 1.),
+            Color::from_rgba_u8(255, 255, 255, style.opacity),
         );
 
         Ok(bounds)
@@ -66,5 +66,8 @@ impl Renderable {
 
 transitionable!(
     // The style of a button renderable.
-    Style { light: f64 }
+    Style {
+        light: f64,
+        opacity: f64,
+    }
 );

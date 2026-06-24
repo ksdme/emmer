@@ -189,8 +189,17 @@ impl Stack {
 
     /// The handler for when a pointer left click happens within the bounds of
     /// this stack.
-    pub fn on_left_click(&mut self, _event: &PointerEvent) -> Vec<AppCommand> {
-        vec![]
+    pub fn on_left_click(&mut self, event: &PointerEvent) -> Vec<AppCommand> {
+        if let Some(id) = self.find_at(event.position).map(|el| el.id()) {
+            if let Some(item) = self.items.get_mut(&id) {
+                item.toggle_buttons();
+                self.update_visual_states();
+            }
+
+            vec![AppCommand::Redraw]
+        } else {
+            vec![]
+        }
     }
 
     /// The handler for when a pointer right click happens within the bounds of

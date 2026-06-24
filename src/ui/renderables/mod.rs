@@ -107,7 +107,7 @@ impl Interp for Color {
 /// Reprenents an implementation of Style that can be interpolated.
 /// This is a requirement for a style that needs to be transitionable.
 pub trait Transitionable: Clone {
-    type Partial;
+    type Partial: Clone;
 
     fn interpolate(&self, to: &Self::Partial, progress: f64) -> Self;
 }
@@ -126,7 +126,7 @@ macro_rules! transitionable {
         }
 
         pastey::paste! {
-            #[derive(Debug, Default)]
+            #[derive(Debug, Default, Clone)]
             pub struct [<Partial $name>] {
                 $(pub $field: Option<$ty>,)*
             }
@@ -159,8 +159,8 @@ macro_rules! transitionable {
 }
 
 /// Represents the parameters of a transition of a style into another.
-#[derive(Debug)]
-pub struct Transition<S: Transitionable> {
+#[derive(Debug, Clone)]
+pub struct Transition<S: Transitionable + Clone> {
     starts: Instant,
     duration: Duration,
 
@@ -170,7 +170,7 @@ pub struct Transition<S: Transitionable> {
 
 impl<S> Transition<S>
 where
-    S: Transitionable,
+    S: Transitionable + Clone,
 {
     /// Returns a new transition to target_state with a shared clock.
     pub fn new(duration: Duration, to: S::Partial, starts: Option<Instant>) -> Self {

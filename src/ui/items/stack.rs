@@ -39,6 +39,7 @@ pub struct Stack {
     presentation: Presentation,
 
     bounds: Option<Rect>,
+    hovering: Option<u32>,
 }
 
 impl Stack {
@@ -50,13 +51,14 @@ impl Stack {
             presentation: Presentation::Stack,
 
             bounds: None,
+            hovering: None,
         }
     }
 
     // TODO: This needs to be as efficient as possible.
     /// Finds an item that is at (x, y) visual position on this stack.
-    pub fn find_at(&self, at: (f64, f64)) -> Option<&Item> {
-        for el in self.items.values().rev() {
+    pub fn find_at_mut(&mut self, at: (f64, f64)) -> Option<&mut Item> {
+        for el in self.items.values_mut().rev() {
             if let Some(hitbox) = el.bounds() {
                 // TODO: Requires fixes when allowed alt anchors.
                 // Given that values are sorted, we can abort as soon as we
@@ -84,25 +86,6 @@ impl Stack {
         self.update_visual_states();
 
         vec![AppCommand::Redraw]
-    }
-
-    // TODO: Lock the items.
-    /// Removes an item from the stack and returns a list of resulting
-    /// side effects.
-    fn dismiss(&mut self, id: u32) -> Vec<AppCommand> {
-        if let Some(item) = self.items.get_mut(&id)
-            && !item.is_dimissed()
-        {
-            item.mark_dismissed();
-            self.update_visual_states();
-
-            vec![
-                AppCommand::Redraw,
-                AppCommand::NotifyClosed(id, CloseReason::Manual),
-            ]
-        } else {
-            vec![]
-        }
     }
 
     /// Removes expired items from the stack and returns a list of resulting
@@ -187,45 +170,36 @@ impl Stack {
         }
     }
 
-    /// The handler for when a pointer left click happens within the bounds of
-    /// this stack.
-    pub fn on_left_click(&mut self, event: &PointerEvent) -> Vec<AppCommand> {
-        if let Some(id) = self.find_at(event.position).map(|el| el.id()) {
-            if let Some(item) = self.items.get_mut(&id) {
-                item.toggle_buttons();
-                self.update_visual_states();
-            }
-
-            vec![AppCommand::Redraw]
-        } else {
-            vec![]
-        }
-    }
-
-    /// The handler for when a pointer right click happens within the bounds of
-    /// this stack.
-    pub fn on_right_click(&mut self, event: &PointerEvent) -> Vec<AppCommand> {
-        if let Some(id) = self.find_at(event.position).map(|el| el.id()) {
-            self.dismiss(id)
-        } else {
-            vec![]
-        }
-    }
-
     /// The handler for when a pointer is hovering within the bounds of this
     /// stack.
     pub fn on_hover(&mut self, event: &PointerEvent) -> Vec<AppCommand> {
-        if let Some(_) = self.find_at(event.position) {
-            let mut commands = vec![AppCommand::SetCursor(CursorIcon::Pointer)];
+        // Allow the previously hovered item to reset itself.
+        let mut commands = if let Some(id) = self.hovering
+            && let Some(item) = self.items.get_mut(&id)
+        {
+            self.hovering = None;
+
+            item.on_leave(event)
+        } else {
+            vec![]
+        };
+
+        // Trigger on_hover on the current item.
+        if let Some(item) = self.find_at_mut(event.position) {
+            let id = item.id();
+            commands.extend(item.on_hover(event));
 
             if self.set_presentation(Presentation::Spread) {
+                // TODO: item.on_hover might have queued a redraw.
                 commands.push(AppCommand::Redraw);
             }
 
-            commands
+            self.hovering = Some(id);
         } else {
-            vec![AppCommand::SetCursor(CursorIcon::Default)]
-        }
+            commands.push(AppCommand::SetCursor(CursorIcon::Default));
+        };
+
+        commands
     }
 
     /// The handler for when the pointer leaves the bounds of this stack.
@@ -237,6 +211,40 @@ impl Stack {
             AppCommand::Redraw,
             AppCommand::SetCursor(CursorIcon::Default),
         ]
+    }
+
+    /// The handler for when a pointer left click happens within the bounds of
+    /// this stack.
+    pub fn on_left_click(&mut self, event: &PointerEvent) -> Vec<AppCommand> {
+        if let Some(item) = self.find_at_mut(event.position) {
+            let (mut commands, update_visual_states) = item.on_left_click(event);
+
+            if update_visual_states {
+                self.update_visual_states();
+                commands.push(AppCommand::Redraw);
+            }
+
+            commands
+        } else {
+            vec![]
+        }
+    }
+
+    /// The handler for when a pointer right click happens within the bounds of
+    /// this stack.
+    pub fn on_right_click(&mut self, event: &PointerEvent) -> Vec<AppCommand> {
+        if let Some(item) = self.find_at_mut(event.position) {
+            let (mut commands, update_visual_states) = item.on_right_click(event);
+
+            if update_visual_states {
+                self.update_visual_states();
+                commands.push(AppCommand::Redraw);
+            }
+
+            commands
+        } else {
+            vec![]
+        }
     }
 
     // Renders the stack to the cairo canvas and returns a bool indicating if all the item

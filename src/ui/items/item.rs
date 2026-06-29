@@ -4,12 +4,14 @@ use std::{
 };
 
 use anyhow::{Context, Result};
+use smithay_client_toolkit::seat::pointer::{CursorIcon, PointerEvent};
 
 use crate::{
     config::{ComputedConfig, Insets},
+    dbus::CloseReason,
     notification::{Action, Notification},
     ui::{
-        items::stack::Presentation,
+        items::stack::{AppCommand, Presentation},
         renderables::{Rect, button, notification},
     },
 };
@@ -48,6 +50,7 @@ pub struct Item {
     notif_bounds: Option<Rect>,
 
     action_buttons: Vec<ActionButton>,
+    hovering_button: Option<usize>,
     buttons: bool,
 
     bounds: Option<Rect>,
@@ -103,6 +106,7 @@ impl Item {
             notif_bounds: None,
 
             action_buttons,
+            hovering_button: None,
             buttons: false,
 
             bounds: None,
@@ -125,8 +129,113 @@ impl Item {
         self.dismissed = true;
     }
 
-    pub fn toggle_buttons(&mut self) {
-        self.buttons = !self.buttons
+    pub fn on_hover(&mut self, event: &PointerEvent) -> Vec<AppCommand> {
+        // Check if the hover was on the card itself.
+        if let Some(bounds) = self.notif_bounds
+            && bounds.contains(event.position)
+        {
+            return vec![AppCommand::SetCursor(CursorIcon::Pointer)];
+        }
+
+        // Check if the hover was on the button instead.
+        if self.buttons {
+            let hit = self.action_buttons.iter_mut().enumerate().find(|el| {
+                el.1.bounds
+                    .map(|bounds| bounds.contains(event.position))
+                    .unwrap_or(false)
+            });
+
+            if let Some((current, button)) = hit {
+                let mut commands = vec![AppCommand::SetCursor(CursorIcon::Pointer)];
+
+                if self.hovering_button != Some(current) {
+                    // Show hover tint on the current button.
+                    button.transition = Some(button::StyleTransition::new(
+                        Duration::from_millis(100),
+                        button::PartialStyle {
+                            light: Some(0.025),
+                            opacity: Some(1.),
+                        },
+                        None,
+                    ));
+
+                    // Reset tint on the previous button.
+                    if let Some(previous) = self.hovering_button
+                        && let Some(button) = self.action_buttons.get_mut(previous)
+                    {
+                        button.transition = Some(button::StyleTransition::new(
+                            Duration::from_millis(100),
+                            button::PartialStyle {
+                                light: Some(0.),
+                                opacity: Some(1.),
+                            },
+                            None,
+                        ));
+                    }
+
+                    self.hovering_button = Some(current);
+
+                    // Trigger the draw loop only if something has changed here,
+                    // otherwise, we will draw on almost every frame.
+                    commands.push(AppCommand::Redraw);
+                }
+
+                return commands;
+            }
+        }
+
+        vec![]
+    }
+
+    pub fn on_leave(&mut self, _event: &PointerEvent) -> Vec<AppCommand> {
+        // TODO: Should we redraw?
+        if let Some(id) = self.hovering_button
+            && let Some(button) = self.action_buttons.get_mut(id)
+        {
+            button.transition = Some(button::StyleTransition::new(
+                Duration::from_millis(100),
+                button::PartialStyle {
+                    light: Some(0.),
+                    opacity: Some(1.),
+                },
+                None,
+            ));
+
+            self.hovering_button = None;
+        }
+
+        vec![]
+    }
+
+    /// The left click handler on the item. Returns a list of commands and also a bool
+    /// representing if the stack layout should be refreshed.
+    pub fn on_left_click(&mut self, event: &PointerEvent) -> (Vec<AppCommand>, bool) {
+        if let Some(bounds) = self.notif_bounds
+            && bounds.contains(event.position)
+        {
+            self.buttons = !self.buttons;
+
+            // Again, the true here should trigger a visual state update and a
+            // redraw automatically.
+            (vec![], true)
+        } else {
+            (vec![], false)
+        }
+    }
+
+    pub fn on_right_click(&mut self, _event: &PointerEvent) -> (Vec<AppCommand>, bool) {
+        if !self.dismissed {
+            self.mark_dismissed();
+
+            // Again, the true here should trigger a visual state update and a
+            // redraw automatically.
+            (
+                vec![AppCommand::NotifyClosed(self.id(), CloseReason::Manual)],
+                true,
+            )
+        } else {
+            (vec![], false)
+        }
     }
 
     /// Updates the transitions and the style of the item as per the visual state.

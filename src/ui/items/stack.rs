@@ -115,7 +115,12 @@ impl Stack {
             log::info!("stack.set_presentation: {:?}", presentation);
 
             self.presentation = presentation;
-            self.update_visual_states();
+            // If there are no new items, then, don't change the visual presentation
+            // style, otherwise, it might change the ongoing transition without anchors
+            // and look weird.
+            if self.items.values().any(|item| !item.dismissed()) {
+                self.update_visual_states();
+            }
 
             true
         } else {

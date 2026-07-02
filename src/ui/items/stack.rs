@@ -173,31 +173,31 @@ impl Stack {
     /// The handler for when a pointer is hovering within the bounds of this
     /// stack.
     pub fn on_hover(&mut self, event: &PointerEvent) -> Vec<AppCommand> {
-        // Allow the previously hovered item to reset itself.
-        let mut commands = if let Some(id) = self.hovering
-            && let Some(item) = self.items.get_mut(&id)
-        {
-            self.hovering = None;
-
-            item.on_leave(event)
-        } else {
-            vec![]
-        };
-
         // Trigger on_hover on the current item.
-        if let Some(item) = self.find_at_mut(event.position) {
+        let (hit, mut commands) = if let Some(item) = self.find_at_mut(event.position) {
             let id = item.id();
-            commands.extend(item.on_hover(event));
+            let mut commands = item.on_hover(event);
 
             if self.set_presentation(Presentation::Spread) {
                 // TODO: item.on_hover might have queued a redraw.
+                // But, this is not a huge problem because the double draw happens only
+                // when during the presentation transition.
                 commands.push(AppCommand::Redraw);
             }
 
-            self.hovering = Some(id);
+            (Some(id), commands)
         } else {
-            commands.push(AppCommand::SetCursor(CursorIcon::Default));
+            (None, vec![AppCommand::SetCursor(CursorIcon::Default)])
         };
+
+        // Allow the previously hovered item to reset itself.
+        if hit != self.hovering
+            && let Some(previous) = self.hovering
+            && let Some(previous) = self.items.get_mut(&previous)
+        {
+            commands.extend(previous.on_leave(event));
+        }
+        self.hovering = hit;
 
         commands
     }

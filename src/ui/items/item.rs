@@ -51,7 +51,7 @@ pub struct Item {
 
     action_buttons: Vec<ActionButton>,
     hovering_button: Option<usize>,
-    buttons: bool,
+    buttons_visible: bool,
 
     bounds: Option<Rect>,
 }
@@ -107,7 +107,7 @@ impl Item {
 
             action_buttons,
             hovering_button: None,
-            buttons: false,
+            buttons_visible: false,
 
             bounds: None,
         }
@@ -145,7 +145,7 @@ impl Item {
         }
 
         // Check if the hover was on the button instead.
-        if self.buttons {
+        if self.buttons_visible {
             let hit = self.action_buttons.iter_mut().enumerate().find(|el| {
                 el.1.bounds
                     .map(|bounds| bounds.contains(event.position))
@@ -221,7 +221,7 @@ impl Item {
         if let Some(bounds) = self.notif_bounds
             && bounds.contains(event.position)
         {
-            self.buttons = !self.buttons;
+            self.buttons_visible = !self.buttons_visible;
 
             // Again, the true here should trigger a visual state update and a
             // redraw automatically.
@@ -229,7 +229,7 @@ impl Item {
         }
 
         // Check buttons.
-        if self.buttons && !self.dismissed {
+        if self.buttons_visible && !self.dismissed {
             let action = self
                 .action_buttons
                 .iter()
@@ -337,7 +337,7 @@ impl Item {
                     inner_opacity: if self.dismissed { 0. } else { 1. },
                 };
 
-                let buttons_target = if self.buttons && !self.dismissed {
+                let buttons_target = if self.buttons_visible && !self.dismissed {
                     button::Style {
                         light: 0.,
                         opacity: 1.,
@@ -349,7 +349,7 @@ impl Item {
                     }
                 };
 
-                let buttons_h = if self.buttons {
+                let buttons_h = if self.buttons_visible {
                     self.action_buttons
                         .first()
                         .map(|button| button.r.content_size())

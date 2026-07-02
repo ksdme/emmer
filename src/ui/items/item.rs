@@ -26,7 +26,7 @@ pub enum VisualState {
 /// Represents an action button.
 #[derive(Debug)]
 pub struct ActionButton {
-    _action: Action,
+    action: Action,
 
     r: button::Renderable,
     style: button::Style,
@@ -83,7 +83,7 @@ impl Item {
             .actions()
             .iter()
             .map(|action| ActionButton {
-                _action: action.clone(),
+                action: action.clone(),
 
                 r: button::Renderable::new(&config, action.label(), Insets { x: 16., y: 8. }),
                 style: button::Style::default(),
@@ -210,6 +210,7 @@ impl Item {
     /// The left click handler on the item. Returns a list of commands and also a bool
     /// representing if the stack layout should be refreshed.
     pub fn on_left_click(&mut self, event: &PointerEvent) -> (Vec<AppCommand>, bool) {
+        // Check the notif.
         if let Some(bounds) = self.notif_bounds
             && bounds.contains(event.position)
         {
@@ -217,10 +218,27 @@ impl Item {
 
             // Again, the true here should trigger a visual state update and a
             // redraw automatically.
-            (vec![], true)
-        } else {
-            (vec![], false)
+            return (vec![], true);
         }
+
+        // Check buttons.
+        if self.buttons {
+            for button in self.action_buttons.iter() {
+                if let Some(bounds) = button.bounds
+                    && bounds.contains(event.position)
+                {
+                    return (
+                        vec![AppCommand::NotifyAction(
+                            self.id(),
+                            button.action.key().to_string(),
+                        )],
+                        false,
+                    );
+                }
+            }
+        }
+
+        (vec![], false)
     }
 
     pub fn on_right_click(&mut self, _event: &PointerEvent) -> (Vec<AppCommand>, bool) {

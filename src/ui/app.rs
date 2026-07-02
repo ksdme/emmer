@@ -2,7 +2,7 @@ use std::sync::{Arc, Mutex};
 
 use anyhow::{Context, Result, anyhow};
 use smithay_client_toolkit::{
-    activation::{ActivationHandler, ActivationState},
+    activation::{ActivationHandler, ActivationState, RequestData},
     compositor::{CompositorHandler, CompositorState, Region},
     delegate_activation, delegate_compositor, delegate_layer, delegate_output, delegate_pointer,
     delegate_registry, delegate_seat, delegate_shm,
@@ -24,7 +24,7 @@ use wayland_client::{
     globals::registry_queue_init,
     protocol::{
         wl_seat::{self, WlSeat},
-        wl_shm,
+        wl_shm, wl_surface,
     },
 };
 
@@ -56,7 +56,7 @@ pub struct App {
     seat: Option<WlSeat>,
     pointer: Option<ThemedPointer>,
     cursor_icon: Option<CursorIcon>,
-    _activation_state: ActivationState,
+    activation_state: ActivationState,
 
     shm: Shm,
     buffer_pool: Mutex<BufferPool<3>>,
@@ -218,7 +218,7 @@ impl PointerHandler for App {
                     smithay_client_toolkit::seat::pointer::PointerEventKind::Release {
                         time: _,
                         button,
-                        serial: _,
+                        serial,
                     } => {
                         log::trace!(target: "emmer::wl::pointer", "frame release");
                         self.stack_hovering = true;
@@ -228,14 +228,20 @@ impl PointerHandler for App {
                             BTN_RIGHT => self.stack.on_right_click(e),
                             _ => continue,
                         };
-                        let _ = self.handle_commands(commands);
+
+                        if let Some(seat) = self.seat.as_ref() {
+                            let _ = self.handle_commands(
+                                commands,
+                                Some((serial, seat.clone(), e.surface.clone())),
+                            );
+                        }
                     }
                     smithay_client_toolkit::seat::pointer::PointerEventKind::Motion { time: _ } => {
                         log::trace!(target: "emmer::wl::pointer", "motion");
                         self.stack_hovering = true;
 
                         let commands = self.stack.on_hover(e);
-                        let _ = self.handle_commands(commands);
+                        let _ = self.handle_commands(commands, None);
                     }
                     _ => {}
                 }
@@ -246,7 +252,7 @@ impl PointerHandler for App {
 
                 // TODO: We should check the type of the event?
                 let commands = self.stack.on_leave();
-                let _ = self.handle_commands(commands);
+                let _ = self.handle_commands(commands, None);
             }
         }
     }
@@ -338,14 +344,28 @@ delegate_seat!(App);
 impl ActivationHandler for App {
     type RequestData = ActivationRequestData;
 
-    fn new_token(&mut self, token: String, request: &Self::RequestData) {
-        log::debug!(target: "emmer::wl::activation", "new_token: {request:?}");
+    fn new_token(&mut self, token: String, req: &Self::RequestData) {
+        log::debug!(target: "emmer::wl::activation", "new_token: {req:?}");
 
         let _ = logged!(
             self.server_tx
-                .send(request.server_message(token))
+                .send(ServerMessage::ActivationToken {
+                    id: req.id(),
+                    token
+                })
                 .context("Could not send activation token message")
         );
+
+        if let Some(action) = req.action() {
+            let _ = logged!(
+                self.server_tx
+                    .send(ServerMessage::ActionInvoked {
+                        id: req.id(),
+                        key: action.to_string(),
+                    })
+                    .context("Could not send action message")
+            );
+        }
     }
 }
 delegate_activation!(App, ActivationRequestData);
@@ -425,7 +445,7 @@ impl App {
                 seat: None,
                 pointer: None,
                 cursor_icon: None,
-                _activation_state: activation_state,
+                activation_state,
 
                 shm,
                 buffer_pool: Mutex::new(buffer_pool),
@@ -539,17 +559,21 @@ impl App {
 
     pub fn push(&mut self, notification: notification::Notification) -> Result<()> {
         let commands = self.stack.push(notification);
-        self.handle_commands(commands)
+        self.handle_commands(commands, None)
     }
 
     pub fn dismiss_expired(&mut self) -> Result<()> {
         let commands = self.stack.dismiss_expired();
-        self.handle_commands(commands)
+        self.handle_commands(commands, None)
     }
 }
 
 impl App {
-    pub fn handle_commands(&mut self, commands: Vec<AppCommand>) -> Result<()> {
+    pub fn handle_commands(
+        &mut self,
+        commands: Vec<AppCommand>,
+        serial_seat_surface: Option<(u32, wl_seat::WlSeat, wl_surface::WlSurface)>,
+    ) -> Result<()> {
         for c in commands {
             match c {
                 AppCommand::Redraw => {
@@ -576,6 +600,22 @@ impl App {
                             })
                             .context("Could not send closed signal")
                     );
+                }
+                AppCommand::NotifyAction(id, key) => {
+                    if let Some((serial, seat, surface)) = &serial_seat_surface {
+                        let req = ActivationRequestData::new(
+                            id,
+                            Some(key),
+                            RequestData {
+                                app_id: None,
+                                seat_and_serial: Some((seat.clone(), serial.clone())),
+                                surface: Some(surface.clone()),
+                            },
+                        );
+
+                        self.activation_state
+                            .request_token_with_data(&self.queue_handle, req);
+                    }
                 }
             }
         }

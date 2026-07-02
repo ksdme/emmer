@@ -1,23 +1,26 @@
 use smithay_client_toolkit::activation::{RequestData, RequestDataExt};
 
-use crate::dbus::ServerMessage;
-
 /// The data for requesting an activation token from the compositor while tracking
 /// enough information for dispatching a corresponding org.freedesktop.Notifications.ActivationToken
 /// event when the token is issued.
 #[derive(Debug)]
 pub struct ActivationRequestData {
     id: u32,
+    action: Option<String>,
     data: RequestData,
 }
 
 impl ActivationRequestData {
-    pub fn new(id: u32, data: RequestData) -> Self {
-        Self { id, data }
+    pub fn new(id: u32, action: Option<String>, data: RequestData) -> Self {
+        Self { id, action, data }
     }
 
-    pub fn server_message(&self, token: String) -> ServerMessage {
-        ServerMessage::ActivationToken { id: self.id, token }
+    pub fn id(&self) -> u32 {
+        self.id
+    }
+
+    pub fn action(&self) -> Option<&String> {
+        self.action.as_ref()
     }
 }
 

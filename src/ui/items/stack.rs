@@ -22,6 +22,7 @@ pub enum AppCommand {
     Redraw,
     SetCursor(CursorIcon),
     NotifyClosed(u32, CloseReason),
+    NotifyAction(u32, String),
 }
 
 /// Represents the presentation mode of the stack.

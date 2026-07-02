@@ -30,7 +30,7 @@ use wayland_client::{
 
 use crate::{
     config::ComputedConfig,
-    dbus::ServerMessage,
+    dbus::{CloseReason, ServerMessage},
     logged, notification,
     ui::{
         activation::ActivationRequestData,
@@ -365,6 +365,15 @@ impl ActivationHandler for App {
                     })
                     .context("Could not send action message")
             );
+
+            let _ = logged!(
+                self.server_tx
+                    .send(ServerMessage::Closed {
+                        id: req.id(),
+                        reason: CloseReason::Manual,
+                    })
+                    .context("Could not send action message")
+            );
         }
     }
 }
@@ -608,7 +617,7 @@ impl App {
                             Some(key),
                             RequestData {
                                 app_id: None,
-                                seat_and_serial: Some((seat.clone(), serial.clone())),
+                                seat_and_serial: Some((seat.clone(), *serial)),
                                 surface: Some(surface.clone()),
                             },
                         );

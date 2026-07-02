@@ -147,7 +147,7 @@ macro_rules! transitionable {
                 fn interpolate(&self, to: &Self::Partial, progress: f64) -> $name {
                     $name {
                         $(
-                            $field: crate::ui::renderables::Interp::interp(self.$field, to.$field, progress),
+                            $field: $crate::ui::renderables::Interp::interp(self.$field, to.$field, progress),
                         )*
                     }
                 }

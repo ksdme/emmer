@@ -95,8 +95,7 @@ impl Stack {
         let mut commands = vec![];
 
         for item in self.items.values_mut() {
-            if item.notification().is_expired() && !item.is_dimissed() {
-                item.mark_dismissed();
+            if item.notification().is_expired() && item.dismiss() {
                 commands.push(AppCommand::NotifyClosed(item.id(), CloseReason::Expired));
             }
         }
@@ -139,7 +138,7 @@ impl Stack {
 
                         // If an item is dismissed, then we expect that the next item replaces
                         // its visual position.
-                        if !item.is_dimissed() {
+                        if !item.dismissed() {
                             no += 1;
                             top_y = y;
                         }
@@ -159,7 +158,7 @@ impl Stack {
 
                         // If an item is dismissed, then we expect that the next item replaces
                         // its visual position.
-                        if !item.is_dimissed() {
+                        if !item.dismissed() {
                             no += 1;
                             top_y = y;
                         }
@@ -271,7 +270,7 @@ impl Stack {
 
             // If the item was marked as dismissed, and the transition
             // around it has settled, then, remove.
-            if item_settled && item.is_dimissed() {
+            if item_settled && item.dismissed() {
                 settled_dismissals.insert(*id);
             }
 

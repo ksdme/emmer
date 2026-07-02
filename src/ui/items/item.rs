@@ -121,12 +121,19 @@ impl Item {
         &self.notif
     }
 
-    pub fn is_dimissed(&self) -> bool {
+    pub fn dismissed(&self) -> bool {
         self.dismissed
     }
 
-    pub fn mark_dismissed(&mut self) {
-        self.dismissed = true;
+    /// Marks the current item as dismissed and returns a boolean if a boolean
+    /// indicating if the change was accepted.
+    pub fn dismiss(&mut self) -> bool {
+        if !self.dismissed {
+            self.dismissed = true;
+            true
+        } else {
+            false
+        }
     }
 
     pub fn on_hover(&mut self, event: &PointerEvent) -> Vec<AppCommand> {
@@ -222,19 +229,23 @@ impl Item {
         }
 
         // Check buttons.
-        if self.buttons {
-            for button in self.action_buttons.iter() {
-                if let Some(bounds) = button.bounds
-                    && bounds.contains(event.position)
-                {
-                    return (
-                        vec![AppCommand::NotifyAction(
-                            self.id(),
-                            button.action.key().to_string(),
-                        )],
-                        false,
-                    );
-                }
+        if self.buttons && !self.dismissed {
+            let action = self
+                .action_buttons
+                .iter()
+                .find(|button| {
+                    button
+                        .bounds
+                        .is_some_and(|bounds| bounds.contains(event.position))
+                })
+                .map(|button| button.action.key().to_string());
+
+            if let Some(action) = action {
+                // A close action will be sent to the client after an activation token
+                // is generated. But, visually, we mark it for dismissal right away.
+                self.dismiss();
+
+                return (vec![AppCommand::NotifyAction(self.id(), action)], true);
             }
         }
 
@@ -242,9 +253,7 @@ impl Item {
     }
 
     pub fn on_right_click(&mut self, _event: &PointerEvent) -> (Vec<AppCommand>, bool) {
-        if !self.dismissed {
-            self.mark_dismissed();
-
+        if self.dismiss() {
             // Again, the true here should trigger a visual state update and a
             // redraw automatically.
             (

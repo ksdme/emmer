@@ -160,7 +160,7 @@ impl Item {
                     button.transition = Some(button::StyleTransition::new(
                         Duration::from_millis(100),
                         button::PartialStyle {
-                            light: Some(0.025),
+                            light: Some(0.03),
                             opacity: Some(1.),
                         },
                         None,

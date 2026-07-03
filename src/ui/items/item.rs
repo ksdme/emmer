@@ -49,7 +49,8 @@ pub struct Item {
     notif_transition: Option<notification::StyleTransition>,
     notif_bounds: Option<Rect>,
 
-    action_buttons: Vec<ActionButton>,
+    implicit_action: Option<Action>,
+    action_buttons: Option<Vec<ActionButton>>,
     hovering_button: Option<usize>,
     buttons_visible: bool,
 
@@ -79,19 +80,35 @@ impl Item {
             inner_opacity: 1.,
         };
 
-        let action_buttons: Vec<ActionButton> = notif
-            .actions()
-            .iter()
-            .map(|action| ActionButton {
-                action: action.clone(),
+        let (implicit_action, action_buttons) = match notif.actions().as_slice() {
+            [] => (None, None),
 
-                r: button::Renderable::new(&config, action.label(), Insets { x: 16., y: 8. }),
-                style: button::Style::default(),
-                transition: None,
+            // If there is only one action, we will treat it as implicit action.
+            [first] => (Some(first.clone()), None),
 
-                bounds: None,
-            })
-            .collect();
+            // If there are more than one actions, we turn all of them into buttons.
+            actions => (
+                None,
+                Some(
+                    actions
+                        .iter()
+                        .map(|action| ActionButton {
+                            action: action.clone(),
+
+                            r: button::Renderable::new(
+                                &config,
+                                action.label(),
+                                Insets { x: 16., y: 8. },
+                            ),
+                            style: button::Style::default(),
+                            transition: None,
+
+                            bounds: None,
+                        })
+                        .collect::<Vec<ActionButton>>(),
+                ),
+            ),
+        };
 
         Self {
             config,
@@ -105,6 +122,7 @@ impl Item {
             notif_transition: None,
             notif_bounds: None,
 
+            implicit_action,
             action_buttons,
             hovering_button: None,
             buttons_visible: false,
@@ -141,15 +159,20 @@ impl Item {
         if let Some(bounds) = self.notif_bounds
             && bounds.contains(event.position)
         {
-            return vec![AppCommand::SetCursor(CursorIcon::Pointer)];
+            // If the notif is interactable at all.
+            if self.implicit_action.is_some() || self.action_buttons.is_some() {
+                return vec![AppCommand::SetCursor(CursorIcon::Pointer)];
+            }
         }
 
         // Check if the hover was on the button instead.
         if self.buttons_visible {
-            let hit = self.action_buttons.iter_mut().enumerate().find(|el| {
-                el.1.bounds
-                    .map(|bounds| bounds.contains(event.position))
-                    .unwrap_or(false)
+            let hit = self.action_buttons.as_mut().and_then(|buttons| {
+                buttons.iter_mut().enumerate().find(|el| {
+                    el.1.bounds
+                        .map(|bounds| bounds.contains(event.position))
+                        .unwrap_or(false)
+                })
             });
 
             if let Some((current, button)) = hit {
@@ -168,7 +191,8 @@ impl Item {
 
                     // Reset tint on the previous button.
                     if let Some(previous) = self.hovering_button
-                        && let Some(button) = self.action_buttons.get_mut(previous)
+                        && let Some(buttons) = self.action_buttons.as_mut()
+                        && let Some(button) = buttons.get_mut(previous)
                     {
                         button.transition = Some(button::StyleTransition::new(
                             Duration::from_millis(100),
@@ -197,7 +221,8 @@ impl Item {
     pub fn on_leave(&mut self, _event: &PointerEvent) -> Vec<AppCommand> {
         // TODO: Should we redraw?
         if let Some(id) = self.hovering_button
-            && let Some(button) = self.action_buttons.get_mut(id)
+            && let Some(buttons) = self.action_buttons.as_mut()
+            && let Some(button) = buttons.get_mut(id)
         {
             button.transition = Some(button::StyleTransition::new(
                 Duration::from_millis(100),
@@ -218,31 +243,51 @@ impl Item {
     /// representing if the stack layout should be refreshed.
     pub fn on_left_click(&mut self, event: &PointerEvent) -> (Vec<AppCommand>, bool) {
         // Check the notif.
-        if let Some(bounds) = self.notif_bounds
+        if !self.dismissed
+            && let Some(bounds) = self.notif_bounds
             && bounds.contains(event.position)
         {
-            self.buttons_visible = !self.buttons_visible;
+            // Issue the implicit action if possible.
+            if let Some(action) = self
+                .implicit_action
+                .as_ref()
+                .map(|action| action.key().to_string())
+            {
+                // An action should dismiss the item. NotifyAction should send the NotifyClosed
+                // action itself.
+                self.dismiss();
 
-            // Again, the true here should trigger a visual state update and a
-            // redraw automatically.
-            return (vec![], true);
+                return (vec![AppCommand::NotifyAction(self.id(), action)], true);
+            }
+
+            // Toggle the buttons.
+            if let Some(_) = self.action_buttons {
+                self.buttons_visible = !self.buttons_visible;
+
+                // Again, the true here should trigger a visual state update and a
+                // redraw automatically.
+                return (vec![], true);
+            }
+
+            return (vec![], false);
         }
 
         // Check buttons.
-        if self.buttons_visible && !self.dismissed {
-            let action = self
-                .action_buttons
-                .iter()
-                .find(|button| {
-                    button
-                        .bounds
-                        .is_some_and(|bounds| bounds.contains(event.position))
-                })
-                .map(|button| button.action.key().to_string());
+        if !self.dismissed && self.buttons_visible {
+            let action = self.action_buttons.as_ref().and_then(|buttons| {
+                buttons
+                    .iter()
+                    .find(|button| {
+                        button
+                            .bounds
+                            .is_some_and(|bounds| bounds.contains(event.position))
+                    })
+                    .map(|button| button.action.key().to_string())
+            });
 
             if let Some(action) = action {
-                // A close action will be sent to the client after an activation token
-                // is generated. But, visually, we mark it for dismissal right away.
+                // An action should dismiss the item. NotifyAction should send the NotifyClosed
+                // action itself.
                 self.dismiss();
 
                 return (vec![AppCommand::NotifyAction(self.id(), action)], true);
@@ -351,7 +396,8 @@ impl Item {
 
                 let buttons_h = if self.buttons_visible {
                     self.action_buttons
-                        .first()
+                        .as_ref()
+                        .and_then(|buttons| buttons.first())
                         .map(|button| button.r.content_size())
                         .map(|(_, y)| 8. + y)
                         .unwrap_or_default()
@@ -393,8 +439,10 @@ impl Item {
 
         self.visual_state = visual_state;
         self.notif_transition = Some(notif_transition);
-        for button in self.action_buttons.iter_mut() {
-            button.transition = Some(buttons_transition.clone());
+        if let Some(buttons) = self.action_buttons.as_mut() {
+            for button in buttons.iter_mut() {
+                button.transition = Some(buttons_transition.clone());
+            }
         }
 
         y
@@ -419,19 +467,21 @@ impl Item {
 
         // Progress the action buttons.
         let mut buttons_complete = true;
-        for button in self.action_buttons.iter_mut() {
-            buttons_complete &= if let Some(button_t) = button.transition.as_mut() {
-                let (style, complete) = button_t.interpolate(&button.style, now);
+        if let Some(buttons) = self.action_buttons.as_mut() {
+            for button in buttons.iter_mut() {
+                buttons_complete &= if let Some(button_t) = button.transition.as_mut() {
+                    let (style, complete) = button_t.interpolate(&button.style, now);
 
-                button.style = style;
-                if complete {
-                    button.transition = None;
-                }
+                    button.style = style;
+                    if complete {
+                        button.transition = None;
+                    }
 
-                complete
-            } else {
-                true
-            };
+                    complete
+                } else {
+                    true
+                };
+            }
         }
 
         notif_complete & buttons_complete
@@ -468,7 +518,8 @@ impl Item {
         // If the card was not rendered or if the button is not visible, do not
         // try even try rendering.
         let bounds = if let Some(notif_bounds) = notif_bounds
-            && let Some(first) = self.action_buttons.first()
+            && let Some(buttons) = self.action_buttons.as_mut()
+            && let Some(first) = buttons.first()
             && first.style.opacity > 0.
         {
             let gap = 8.;
@@ -477,7 +528,7 @@ impl Item {
             let mut x = notif_bounds.x1;
             let y = notif_bounds.y2 + gap;
 
-            for button in self.action_buttons.iter_mut() {
+            for button in buttons.iter_mut() {
                 let button_bounds = button
                     .r
                     .render(cr, &button.style, x, y)

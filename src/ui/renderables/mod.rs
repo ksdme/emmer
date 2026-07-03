@@ -153,7 +153,7 @@ macro_rules! transitionable {
                 }
             }
 
-            pub type [<$name Transition>] = crate::ui::renderables::Transition<$name>;
+            pub type [<$name Transition>] = $crate::ui::renderables::Transition<$name>;
         }
     };
 }

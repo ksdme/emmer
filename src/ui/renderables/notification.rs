@@ -1,9 +1,12 @@
+use std::fs::File;
+
 use anyhow::{Context, Result};
 
 use crate::{
     config::{ComputedConfig, Insets},
+    logged,
     notification::Notification,
-    ui::renderables::{Color, Rect, card, text},
+    ui::renderables::{Color, Rect, card, image, text},
 };
 
 /// Renders a notification card.
@@ -15,13 +18,23 @@ pub struct Renderable {
     card_r: card::Renderable,
     title_r: Option<text::Renderable>,
     body_r: Option<text::Renderable>,
+    image_r: Option<image::Renderable>,
 }
 
 impl Renderable {
-    pub fn new(config: &ComputedConfig, notification: &Notification) -> Self {
+    pub fn new(config: &ComputedConfig, notification: &Notification) -> Result<Self> {
+        let image_r = logged!(
+            image::Renderable::from_png(
+                File::open("/home/ksdme/me/emmer/data/rust.png")
+                    .context("Could not read logo file")?,
+                64,
+            )
+            .context("Could not initialize logo")
+        );
+
         // TODO: This should be a calculated value available here instead.
-        let inner_w = (config.width - 2. * config.padding.x) as i32;
-        Self {
+        let inner_w = (config.width - 3. * config.padding.x - 64.) as i32;
+        Ok(Self {
             width: config.width,
             padding: config.padding.clone(),
 
@@ -44,25 +57,33 @@ impl Renderable {
                     body,
                 )
             }),
-        }
+            image_r: image_r.ok(),
+        })
     }
 
     fn inner_height(&self) -> f64 {
+        let i_h = self
+            .image_r
+            .as_ref()
+            .map(|image| image.content_size())
+            .map(|(_, h)| h)
+            .unwrap_or(0.);
+
         let t_h = self
             .title_r
             .as_ref()
             .map(|title| title.content_size())
             .map(|(_, h)| h)
-            .unwrap_or_default();
+            .unwrap_or(0.);
 
         let b_h = self
             .body_r
             .as_ref()
             .map(|body| body.content_size())
             .map(|(_, h)| h)
-            .unwrap_or_default();
+            .unwrap_or(0.);
 
-        t_h + b_h + if t_h > 0. && b_h > 0. { 8. } else { 0. }
+        i_h.max(t_h + b_h + if t_h > 0. && b_h > 0. { 8. } else { 0. })
     }
 
     pub fn content_size(&self) -> (f64, f64) {
@@ -86,7 +107,6 @@ impl Renderable {
             )
             .context("Could not draw block")?;
 
-        let fg = Color::from_rgba_u8(255, 255, 255, style.inner_opacity);
         if style.inner_opacity > 0. {
             cr.save()
                 .context("Could not save the current cairo state for clipping")?;
@@ -95,7 +115,6 @@ impl Renderable {
             let avail_h = rect.h() - 2. * self.padding.y;
             let content_h = self.inner_height();
 
-            cr.new_path();
             let content_x = rect.x1 + self.padding.x;
             let content_y = if content_h > avail_h {
                 cr.rectangle(content_x, rect.y1 + self.padding.y, avail_w, avail_h);
@@ -108,6 +127,23 @@ impl Renderable {
             } else {
                 rect.y1 + self.padding.y
             };
+
+            // The image/icon.
+            let content_x = if let Some(image_r) = self.image_r.as_ref() {
+                match logged!(
+                    image_r
+                        .render(cr, content_x, content_y, style.inner_opacity)
+                        .context("Could not draw image")
+                ) {
+                    Ok(bounds) => content_x + bounds.w() + 8.,
+                    Err(_) => content_x,
+                }
+            } else {
+                content_x
+            };
+
+            cr.new_path();
+            let fg = Color::from_rgba_u8(255, 255, 255, style.inner_opacity);
 
             // The title.
             let content_y = match &self.title_r {

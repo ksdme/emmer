@@ -567,7 +567,7 @@ impl App {
     }
 
     pub fn push(&mut self, notification: notification::Notification) -> Result<()> {
-        let commands = self.stack.push(notification);
+        let commands = self.stack.push(notification)?;
         self.handle_commands(commands, None)
     }
 

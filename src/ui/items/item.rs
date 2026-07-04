@@ -62,8 +62,9 @@ impl Item {
         notif: Notification,
         config: Arc<ComputedConfig>,
         presentation: &Presentation,
-    ) -> Self {
-        let notif_r = notification::Renderable::new(&config, &notif);
+    ) -> Result<Self> {
+        let notif_r =
+            notification::Renderable::new(&config, &notif).context("Could not initialize")?;
 
         let (w, h) = notif_r.content_size();
         let notif_style = notification::Style {
@@ -110,7 +111,7 @@ impl Item {
             ),
         };
 
-        Self {
+        Ok(Self {
             config,
 
             visual_state: VisualState::Hidden { y: 0. },
@@ -128,7 +129,7 @@ impl Item {
             buttons_visible: false,
 
             bounds: None,
-        }
+        })
     }
 
     pub fn id(&self) -> u32 {

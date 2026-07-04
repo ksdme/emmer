@@ -79,14 +79,15 @@ impl Stack {
 
     // TODO: Lock the items.
     /// Pushes an item to the stack and returns a list of resulting side effects.
-    pub fn push(&mut self, notification: Notification) -> Vec<AppCommand> {
+    pub fn push(&mut self, notification: Notification) -> Result<Vec<AppCommand>> {
         log::info!("stack.push: {:?}", notification.id());
-        let item = Item::spawn(notification, self.config.clone(), &self.presentation);
+        let item = Item::spawn(notification, self.config.clone(), &self.presentation)
+            .context("Could not spawn item")?;
 
         self.items.insert(item.id(), item);
         self.update_visual_states();
 
-        vec![AppCommand::Redraw]
+        Ok(vec![AppCommand::Redraw])
     }
 
     /// Removes expired items from the stack and returns a list of resulting

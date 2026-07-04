@@ -205,5 +205,6 @@ where
 
 pub mod button;
 pub mod card;
+pub mod image;
 pub mod notification;
 pub mod text;

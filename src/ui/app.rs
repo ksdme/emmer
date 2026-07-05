@@ -434,6 +434,7 @@ impl App {
         layer_surface.set_anchor(Anchor::TOP | Anchor::BOTTOM | Anchor::RIGHT);
         layer_surface.set_size(w as u32, h);
 
+        // Set empty input region.
         let region = Region::new(&compositor_state).context("Could not create initial region")?;
         layer_surface.set_input_region(Some(region.wl_region()));
 
@@ -541,6 +542,7 @@ impl App {
         let (bounds, settled) = self.stack.render(&cx).context("Could not render stack")?;
 
         // Update the input region.
+        let region = Region::new(&self.compositor_state).context("Could not create region")?;
         if let Some(bounds) = bounds {
             let (x, y) = (bounds.x1 as i32 - 8, bounds.y1 as i32 - 8);
             let (w, h) = (
@@ -548,9 +550,7 @@ impl App {
                 self.height.min(bounds.h() as i32 + 16),
             );
 
-            let region = Region::new(&self.compositor_state).context("Could not create region")?;
             region.add(x, y, w, h);
-            wl_surface.set_input_region(Some(region.wl_region()));
 
             #[cfg(debug_assertions)]
             if self.config.debug_mode {
@@ -560,6 +560,8 @@ impl App {
                 let _ = cx.stroke();
             }
         }
+        // Without bounds, this empties the input region.
+        wl_surface.set_input_region(Some(region.wl_region()));
 
         // Request an update to the frame.
         surface.flush();

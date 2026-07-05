@@ -8,8 +8,10 @@ use smithay_client_toolkit::seat::pointer::{CursorIcon, PointerEvent};
 
 use crate::{
     config::{ComputedConfig, Insets},
-    dbus::CloseReason,
-    notification::{Action, Notification},
+    dbus::{
+        notification::{Action, Notification},
+        service::CloseReason,
+    },
     ui::{
         items::stack::{AppCommand, Presentation},
         renderables::{Rect, button, notification},
@@ -40,10 +42,15 @@ pub struct ActionButton {
 pub struct Item {
     config: Arc<ComputedConfig>,
 
+    // Instead of holding onto the notification object we move the fields here
+    // so we can prevent duplicating the image data or having to use cairo's
+    // unsafe methods.
+    id: u32,
+    expires_at: Option<Instant>,
+
     visual_state: VisualState,
     dismissed: bool,
 
-    notif: Notification,
     notif_r: notification::Renderable,
     notif_style: notification::Style,
     notif_transition: Option<notification::StyleTransition>,
@@ -63,8 +70,13 @@ impl Item {
         config: Arc<ComputedConfig>,
         presentation: &Presentation,
     ) -> Result<Self> {
-        let notif_r =
-            notification::Renderable::new(&config, &notif).context("Could not initialize")?;
+        let notif_r = notification::Renderable::new(
+            &config,
+            notif.title.as_deref(),
+            notif.body.as_deref(),
+            notif.image,
+        )
+        .context("Could not initialize")?;
 
         let (w, h) = notif_r.content_size();
         let notif_style = notification::Style {
@@ -81,7 +93,7 @@ impl Item {
             inner_opacity: 1.,
         };
 
-        let (implicit_action, action_buttons) = match notif.actions().as_slice() {
+        let (implicit_action, action_buttons) = match notif.actions.as_slice() {
             [] => (None, None),
 
             // If there is only one action, we will treat it as implicit action.
@@ -114,10 +126,12 @@ impl Item {
         Ok(Self {
             config,
 
+            id: notif.id,
+            expires_at: notif.expires_at,
+
             visual_state: VisualState::Hidden { y: 0. },
             dismissed: false,
 
-            notif,
             notif_r,
             notif_style,
             notif_transition: None,
@@ -133,14 +147,14 @@ impl Item {
     }
 
     pub fn id(&self) -> u32 {
-        self.notif.id()
+        self.id
     }
 
-    pub fn notification(&self) -> &Notification {
-        &self.notif
+    pub fn is_expired(&self) -> bool {
+        self.expires_at.is_some_and(|at| Instant::now() >= at)
     }
 
-    pub fn dismissed(&self) -> bool {
+    pub fn was_dismissed(&self) -> bool {
         self.dismissed
     }
 

@@ -11,13 +11,12 @@ use zbus::{connection, object_server::SignalEmitter};
 
 use crate::{
     config::{ComputedConfig, Config, Insets, SpreadConfig, StackConfig, ThemeConfig},
-    dbus::{NotificationService, ServerMessage},
+    dbus::service::{NotificationService, ServerMessage},
     ui::app::{App, UIMessage},
 };
 
 mod config;
 mod dbus;
-mod notification;
 mod ui;
 mod utils;
 

@@ -7,6 +7,7 @@ edition = "2024"
 anyhow = { version = "1.0.102", features = ["backtrace"] }
 cairo-rs = { version = "0.22.0", features = ["use_glib", "png"] }
 clap = { version = "4.6.1", features = ["derive"] }
+debug-ignore = "1.0.5"
 env_logger = "0.11.9"
 log = "0.4.29"
 pango = "0.22.6"
@@ -15,5 +16,6 @@ pastey = "0.2.3"
 rand = "0.10.1"
 smithay-client-toolkit = "0.20.0"
 tokio = { version = "1.52.3", features = ["default", "macros", "rt", "rt-multi-thread", "sync"] }
+url = "2.5.8"
 wayland-client = "0.31.12"
 zbus = "5.15.0"

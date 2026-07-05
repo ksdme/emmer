@@ -30,8 +30,11 @@ use wayland_client::{
 
 use crate::{
     config::ComputedConfig,
-    dbus::{CloseReason, ServerMessage},
-    logged, notification,
+    dbus::{
+        notification,
+        service::{CloseReason, ServerMessage},
+    },
+    logged,
     ui::{
         activation::ActivationRequestData,
         buffers::BufferPool,
@@ -242,6 +245,14 @@ impl PointerHandler for App {
 
                         let commands = self.stack.on_hover(e);
                         let _ = self.handle_commands(commands, None);
+                    }
+                    smithay_client_toolkit::seat::pointer::PointerEventKind::Axis {
+                        time: _,
+                        horizontal,
+                        vertical,
+                        source: _,
+                    } => {
+                        dbg!(horizontal, vertical);
                     }
                     _ => {}
                 }

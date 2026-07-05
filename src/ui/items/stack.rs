@@ -9,8 +9,7 @@ use std::{
 
 use crate::{
     config::ComputedConfig,
-    dbus::CloseReason,
-    notification::Notification,
+    dbus::{notification::Notification, service::CloseReason},
     ui::{
         items::{Item, item::VisualState},
         renderables::Rect,
@@ -80,7 +79,7 @@ impl Stack {
     // TODO: Lock the items.
     /// Pushes an item to the stack and returns a list of resulting side effects.
     pub fn push(&mut self, notification: Notification) -> Result<Vec<AppCommand>> {
-        log::info!("stack.push: {:?}", notification.id());
+        log::info!("stack.push: {:?}", notification.id);
         let item = Item::spawn(notification, self.config.clone(), &self.presentation)
             .context("Could not spawn item")?;
 
@@ -96,7 +95,7 @@ impl Stack {
         let mut commands = vec![];
 
         for item in self.items.values_mut() {
-            if item.notification().is_expired() && item.dismiss() {
+            if item.is_expired() && item.dismiss() {
                 commands.push(AppCommand::NotifyClosed(item.id(), CloseReason::Expired));
             }
         }
@@ -143,7 +142,7 @@ impl Stack {
 
                         // If an item is dismissed, then we expect that the next item replaces
                         // its visual position.
-                        if !item.dismissed() {
+                        if !item.was_dismissed() {
                             no += 1;
                             top_y = y;
                         }
@@ -163,7 +162,7 @@ impl Stack {
 
                         // If an item is dismissed, then we expect that the next item replaces
                         // its visual position.
-                        if !item.dismissed() {
+                        if !item.was_dismissed() {
                             no += 1;
                             top_y = y;
                         }
@@ -275,7 +274,7 @@ impl Stack {
 
             // If the item was marked as dismissed, and the transition
             // around it has settled, then, remove.
-            if item_settled && item.dismissed() {
+            if item_settled && item.was_dismissed() {
                 settled_dismissals.insert(*id);
             }
 

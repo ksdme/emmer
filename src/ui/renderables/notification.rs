@@ -1,11 +1,9 @@
-use std::fs::File;
-
 use anyhow::{Context, Result};
 
 use crate::{
     config::{ComputedConfig, Insets},
+    dbus::notification,
     logged,
-    notification::Notification,
     ui::renderables::{Color, Rect, card, image, text},
 };
 
@@ -22,15 +20,21 @@ pub struct Renderable {
 }
 
 impl Renderable {
-    pub fn new(config: &ComputedConfig, notification: &Notification) -> Result<Self> {
-        let image_r = logged!(
-            image::Renderable::from_png(
-                File::open("/home/ksdme/me/emmer/data/rust.png")
-                    .context("Could not read logo file")?,
-                64,
+    pub fn new(
+        config: &ComputedConfig,
+        title: Option<&str>,
+        body: Option<&str>,
+        image: Option<notification::ImageSource>,
+    ) -> Result<Self> {
+        let image_r = if let Some(image_source) = image {
+            logged!(
+                image::Renderable::from_source(image_source, 64)
+                    .context("Could not initialize image")
             )
-            .context("Could not initialize logo")
-        );
+            .ok()
+        } else {
+            None
+        };
 
         // TODO: This should be a calculated value available here instead.
         let inner_w = (config.width - 3. * config.padding.x - 64.) as i32;
@@ -39,7 +43,7 @@ impl Renderable {
             padding: config.padding.clone(),
 
             card_r: card::Renderable::new(),
-            title_r: notification.title().map(|title| {
+            title_r: title.map(|title| {
                 text::Renderable::new(
                     &config.theme.font_map,
                     &config.theme.title_font_description,
@@ -48,7 +52,7 @@ impl Renderable {
                     title,
                 )
             }),
-            body_r: notification.body().map(|body| {
+            body_r: body.map(|body| {
                 text::Renderable::new(
                     &config.theme.font_map,
                     &config.theme.body_font_description,
@@ -57,7 +61,7 @@ impl Renderable {
                     body,
                 )
             }),
-            image_r: image_r.ok(),
+            image_r,
         })
     }
 

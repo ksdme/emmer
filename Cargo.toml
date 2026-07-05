@@ -9,6 +9,7 @@ cairo-rs = { version = "0.22.0", features = ["use_glib", "png"] }
 clap = { version = "4.6.1", features = ["derive"] }
 debug-ignore = "1.0.5"
 env_logger = "0.11.9"
+image = "0.25.10"
 log = "0.4.29"
 pango = "0.22.6"
 pangocairo = "0.22.0"

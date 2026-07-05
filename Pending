@@ -1,6 +1,5 @@
 Feat
 - Images
-- Images that are not png?
 - Center the image?
 - Input region when no items are around
 - Stacked offscreen ones explode out instead of implode
@@ -29,3 +28,4 @@ Done
 - Cursor pointer
 - If only one action, then apply it on click
 - If no actions then, disable pointer
+- Images that are not png?

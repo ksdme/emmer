@@ -1,18 +1,20 @@
 Feat
-- Font parsing is weird and hard.
+- Images
+- Images that are not png?
+- Center the image?
+- Input region when no items are around
+- Stacked offscreen ones explode out instead of implode
 - Scrolling stack
+- Sounds and sound hints
+- Font parsing is weird and hard.
 - Dismiss all button
 - Animation smoothing
-- Images
 - Priority based timeouts, themeing
-- Sounds and sound hints
 - Configuration file fixes
 - Default configuration file
 - Markup text
 - Cap frame rate (so we don't have missed frames)
 - HiDPI
-- Input region when no items are around
-- Stacked offscreen ones explode out instead of implode
 
 Test
 - Clicking on notification should dismiss it and also activate the app

@@ -55,6 +55,10 @@ impl Stack {
         }
     }
 
+    pub fn len(&self) -> usize {
+        self.items.len()
+    }
+
     // TODO: This needs to be as efficient as possible.
     /// Finds an item that is at (x, y) visual position on this stack.
     pub fn find_at_mut(&mut self, at: (f64, f64)) -> Option<&mut Item> {

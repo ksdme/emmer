@@ -6,14 +6,18 @@ tasks:
       - systemctl stop --user mako.service
       - RUST_LOG=emmer=debug cargo run -- --debug-mode
 
-  q:
+  single:
     cmds:
-      - notify-send "Message" "This is the body of the notification."
+      - notify-send "Message" "This is the body of the notification." --icon file:///home/ksdme/me/emmer/data/rust.png
+
+  action:
+    cmds:
+      - notify-send "Message" "This is the body of the notification." --icon file:///home/ksdme/me/emmer/data/rust.png --action=hello=Hello --action=world=World
 
   flood:
     cmds:
       - |
         for i in $(seq 1 5); do
-          notify-send "Message" "This is the body of the notification.";
+          notify-send "Message" "This is the body of the notification." --icon file:///home/ksdme/me/emmer/data/rust.png;
           sleep 0.5s;
         done

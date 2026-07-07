@@ -1,6 +1,7 @@
 Feat
 - Center the image?
 - Text alignment looks weird
+- Multiple actions should wrap or just not be drawn
 - Stacked offscreen ones explode out instead of implode
 - Scrolling stack
 - Sounds and sound hints

@@ -1,5 +1,7 @@
 Feat
 - Center the image?
+- Rounded image?
+- Text alignment looks weird
 - Stacked offscreen ones explode out instead of implode
 - Scrolling stack
 - Sounds and sound hints
@@ -29,3 +31,5 @@ Done
 - Images
 - Images that are not png?
 - Input region when no items are around
+- Some notifications use firefox UI when using emmer, at least on Slack
+    - Turns out this was happening because Firefox doesn't like it if the bus goes away midway

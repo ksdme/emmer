@@ -151,7 +151,7 @@ impl Stack {
                             top_y = y;
                         }
                     } else {
-                        let _ = item.set_visual_state(VisualState::Hidden { y: top_y }, now);
+                        let _ = item.set_visual_state(VisualState::StackedHidden { y: top_y }, now);
                     }
                 }
             }
@@ -171,7 +171,7 @@ impl Stack {
                             top_y = y;
                         }
                     } else {
-                        let _ = item.set_visual_state(VisualState::Hidden { y: top_y }, now);
+                        let _ = item.set_visual_state(VisualState::SpreadHidden { y: top_y }, now);
                     }
                 }
             }

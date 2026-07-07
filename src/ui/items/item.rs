@@ -21,8 +21,9 @@ use crate::{
 #[derive(Debug, PartialEq, Clone, Copy)]
 pub enum VisualState {
     Stacked { pos: usize, y: f64 },
+    StackedHidden { y: f64 },
     Spread { y: f64 },
-    Hidden { y: f64 },
+    SpreadHidden { y: f64 },
 }
 
 /// Represents an action button.
@@ -129,7 +130,7 @@ impl Item {
             id: notif.id,
             expires_at: notif.expires_at,
 
-            visual_state: VisualState::Hidden { y: 0. },
+            visual_state: VisualState::StackedHidden { y: 0. },
             dismissed: false,
 
             notif_r,
@@ -336,7 +337,7 @@ impl Item {
 
         let (notif_w, notif_h) = self.notif_r.content_size();
         let (notif_transition, buttons_transition, y) = match visual_state {
-            VisualState::Stacked { pos, y } if pos == 0 => {
+            VisualState::Stacked { pos: 0, y } => {
                 let notif_target = notification::Style {
                     x: self.config.margin.x,
                     y,
@@ -361,16 +362,18 @@ impl Item {
             }
 
             VisualState::Stacked { pos, y } => {
+                let pos = pos as f64;
+
                 let h = notif_h.min(y - self.config.margin.y);
-                let notif_target = notification::PartialStyle {
-                    x: Some(self.config.margin.x + (pos as f64) * self.config.stack.inset),
-                    y: Some(y + self.config.stack.peek - h),
+                let notif_target = notification::Style {
+                    x: self.config.margin.x + pos * self.config.stack.inset,
+                    y: y + self.config.stack.peek - h,
 
-                    w: Some(self.config.width - 2. * (pos as f64) * self.config.stack.inset),
-                    h: Some(h),
+                    w: self.config.width - 2. * pos * self.config.stack.inset,
+                    h,
 
-                    outer_opacity: Some(if self.dismissed { 0. } else { 1. }),
-                    inner_opacity: Some(0.),
+                    outer_opacity: if self.dismissed { 0. } else { 1. },
+                    inner_opacity: 0.,
                 };
 
                 let buttons_target = button::Style {
@@ -379,9 +382,36 @@ impl Item {
                 };
 
                 (
-                    notification::StyleTransition::new(duration, notif_target, Some(now)),
+                    notification::StyleTransition::new(duration, notif_target.into(), Some(now)),
                     button::StyleTransition::new(fast_duration, buttons_target.into(), Some(now)),
                     y + self.config.stack.peek,
+                )
+            }
+
+            VisualState::StackedHidden { y } => {
+                let pos = self.config.stack.max_count as f64;
+
+                let h = notif_h.min(y - self.config.margin.y);
+                let notif_target = notification::Style {
+                    x: self.config.margin.x + pos * self.config.stack.inset,
+                    y: y + self.config.stack.peek - h,
+
+                    w: self.config.width - 2. * pos * self.config.stack.inset,
+                    h,
+
+                    outer_opacity: 0.,
+                    inner_opacity: 0.,
+                };
+
+                let buttons_target = button::Style {
+                    light: 0.,
+                    opacity: 0.,
+                };
+
+                (
+                    notification::StyleTransition::new(duration, notif_target.into(), Some(now)),
+                    button::StyleTransition::new(fast_duration, buttons_target.into(), Some(now)),
+                    y,
                 )
             }
 
@@ -427,7 +457,7 @@ impl Item {
                 )
             }
 
-            VisualState::Hidden { y } => {
+            VisualState::SpreadHidden { y } => {
                 let notif_target = notification::Style {
                     x: self.config.margin.x,
                     y: if self.dismissed { y - notif_h } else { y },

@@ -1,6 +1,9 @@
 use anyhow::{Context, Result};
 
-use crate::{dbus::notification, ui::renderables::Rect};
+use crate::{
+    dbus::notification,
+    ui::renderables::{Rect, rounded_sub_path},
+};
 
 /// Renders an image to the cairo surface with a specific width.
 #[derive(Debug)]
@@ -120,12 +123,33 @@ fn scaled_image_surface(image: image::DynamicImage, w: i32) -> Result<cairo::Ima
         }
     }
 
-    Ok(cairo::ImageSurface::create_for_data(
+    // Transfer the image::Image to a cairo canvas.
+    let source = cairo::ImageSurface::create_for_data(
         pixels,
         cairo::Format::ARgb32,
         scaled_w as i32,
         scaled_h as i32,
         scaled_w as i32 * 4,
     )
-    .context("Could not create target surface")?)
+    .context("Could not create source surface")?;
+
+    // Clip the image to a rounded rect using a duplicate cairo surface.
+    // We could do this in place using Operator::Clear or itering through pixels.
+    let target =
+        cairo::ImageSurface::create(cairo::Format::ARgb32, scaled_w as i32, scaled_h as i32)
+            .context("Could not create target")?;
+
+    {
+        let cr = cairo::Context::new(&target).context("Could not create context")?;
+
+        rounded_sub_path(&cr, 0., 0., scaled_w as f64, scaled_h as f64, 6.);
+        cr.clip();
+
+        cr.set_source_surface(source, 0., 0.)
+            .context("Could not set source")?;
+
+        cr.paint().context("Could not paint")?;
+    }
+
+    Ok(target)
 }

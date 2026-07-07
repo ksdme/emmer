@@ -1,4 +1,5 @@
 use std::{
+    f64::consts::PI,
     ops::Div,
     time::{Duration, Instant},
 };
@@ -201,6 +202,18 @@ where
         // transition is complete.
         (from.interpolate(&self.to, progress), progress >= 1.)
     }
+}
+
+/// A util for setting up a cairo rounded rect path. You could use cr.arc but
+/// that depends on starting position which can get tricky to get right.
+/// Maybe we can put this in a better place.
+pub fn rounded_sub_path(cr: &cairo::Context, x: f64, y: f64, w: f64, h: f64, r: f64) {
+    cr.new_sub_path();
+    cr.arc(x + r, y + r, r, PI, 3.0 * PI / 2.0);
+    cr.arc(x + w - r, y + r, r, 3.0 * PI / 2.0, 2.0 * PI);
+    cr.arc(x + w - r, y + h - r, r, 0.0, PI / 2.0);
+    cr.arc(x + r, y + h - r, r, PI / 2.0, PI);
+    cr.close_path();
 }
 
 pub mod button;

@@ -1,8 +1,6 @@
-use std::f64::consts::PI;
-
 use anyhow::{Context, Result};
 
-use crate::ui::renderables::{Color, Rect};
+use crate::ui::renderables::{Color, Rect, rounded_sub_path};
 
 /// Represents a generic box.
 #[derive(Debug)]
@@ -32,12 +30,7 @@ impl Renderable {
         if r == 0. {
             cr.rectangle(x, y, w, h);
         } else {
-            cr.new_sub_path();
-            cr.arc(x + r, y + r, r, PI, 3.0 * PI / 2.0);
-            cr.arc(x + w - r, y + r, r, 3.0 * PI / 2.0, 2.0 * PI);
-            cr.arc(x + w - r, y + h - r, r, 0.0, PI / 2.0);
-            cr.arc(x + r, y + h - r, r, PI / 2.0, PI);
-            cr.close_path();
+            rounded_sub_path(cr, x, y, w, h, r);
         }
 
         // Background.

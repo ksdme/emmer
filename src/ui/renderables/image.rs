@@ -142,7 +142,15 @@ fn scaled_image_surface(image: image::DynamicImage, w: i32) -> Result<cairo::Ima
     {
         let cr = cairo::Context::new(&target).context("Could not create context")?;
 
-        rounded_sub_path(&cr, 0., 0., scaled_w as f64, scaled_h as f64, 6.);
+        rounded_sub_path(
+            &cr,
+            0.,
+            0.,
+            scaled_w as f64,
+            scaled_h as f64,
+            // Otherwise, narrow images have awkward full rounded corners.
+            (scaled_h as f64 / 3.).min(6.),
+        );
         cr.clip();
 
         cr.set_source_surface(source, 0., 0.)

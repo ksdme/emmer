@@ -596,10 +596,19 @@ impl App {
         commands: Vec<AppCommand>,
         serial_seat_surface: Option<(u32, wl_seat::WlSeat, wl_surface::WlSurface)>,
     ) -> Result<()> {
+        let mut drawn = false;
+
         for c in commands {
             match c {
                 AppCommand::Redraw => {
-                    let _ = logged!(self.draw().context("Could not process draw command"));
+                    // We do not expect any work to be done while processing the command queue, so,
+                    // there is no point in drawing the same frame twice.
+                    if !drawn
+                        && let Ok(_) =
+                            logged!(self.draw().context("Could not process draw command"))
+                    {
+                        drawn = true;
+                    }
                 }
                 AppCommand::SetCursor(cursor_icon) => {
                     if let Some(pointer) = self.pointer.as_ref()

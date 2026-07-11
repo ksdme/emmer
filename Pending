@@ -1,7 +1,9 @@
+- Un-hover transition does not work when not hovering buttons
+- Clamp height on image
+
 Feat
 - Center the image?
 - Text alignment looks weird
-- Multiple actions should wrap or just not be drawn
 - Scrolling stack
 - Sounds and sound hints
 - Font parsing is weird and hard.
@@ -13,6 +15,7 @@ Feat
 - Markup text
 - Cap frame rate (so we don't have missed frames)
 - HiDPI
+- Support alternative anchor positions
 
 Test
 - Clicking on notification should dismiss it and also activate the app
@@ -34,3 +37,4 @@ Done
     - Turns out this was happening because Firefox doesn't like it if the bus goes away midway
 - Rounded thumnail image
 - Stacked offscreen ones explode out instead of implode
+- Multiple actions should wrap or just not be drawn

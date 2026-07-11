@@ -35,6 +35,12 @@ pub struct ActionButton {
     style: button::Style,
     transition: Option<button::StyleTransition>,
 
+    // Since the layout of these buttons are fixed, we calculate
+    // them ahead of time and store it relative to the bottom left corner
+    // of the notification card.
+    base_x: f64,
+    base_y: f64,
+
     bounds: Option<Rect>,
 }
 
@@ -101,27 +107,47 @@ impl Item {
             [first] => (Some(first.clone()), None),
 
             // If there are more than one actions, we turn all of them into buttons.
-            actions => (
-                None,
-                Some(
-                    actions
-                        .iter()
-                        .map(|action| ActionButton {
+            actions => {
+                let gap = 8.;
+
+                // Assumes that buttons are only shown in spread mode which means the available
+                // width for the buttons to spread equals to that of the notification card.
+                let buttons = actions
+                    .iter()
+                    .scan((0., 8.), |(x, y), action| {
+                        let r = button::Renderable::new(
+                            &config,
+                            action.label(),
+                            Insets { x: 16., y: 8. },
+                            Some(w as i32),
+                        );
+
+                        let (b_w, b_h) = r.content_size();
+                        if *x + b_w > w {
+                            *x = 0.;
+                            *y += b_h + gap;
+                        }
+
+                        let button = ActionButton {
                             action: action.clone(),
 
-                            r: button::Renderable::new(
-                                &config,
-                                action.label(),
-                                Insets { x: 16., y: 8. },
-                            ),
+                            r,
                             style: button::Style::default(),
                             transition: None,
 
+                            base_x: *x,
+                            base_y: *y,
+
                             bounds: None,
-                        })
-                        .collect::<Vec<ActionButton>>(),
-                ),
-            ),
+                        };
+                        *x += b_w + gap;
+
+                        Some(button)
+                    })
+                    .collect::<Vec<ActionButton>>();
+
+                (None, Some(buttons))
+            }
         };
 
         Ok(Self {
@@ -442,9 +468,13 @@ impl Item {
                 let buttons_h = if self.buttons_visible {
                     self.action_buttons
                         .as_ref()
-                        .and_then(|buttons| buttons.first())
-                        .map(|button| button.r.content_size())
-                        .map(|(_, y)| 8. + y)
+                        // Assuming that the buttons are drawn and laid out in order meaning
+                        // the bottom most button must be the last item in the list.
+                        .and_then(|buttons| buttons.last())
+                        .map(|button| {
+                            let (_, h) = button.r.content_size();
+                            button.base_y + h
+                        })
                         .unwrap_or_default()
                 } else {
                     0.
@@ -560,28 +590,31 @@ impl Item {
             None
         };
 
-        // If the card was not rendered or if the button is not visible, do not
-        // try even try rendering.
+        // If the card was not rendered or if the buttons are not visible, do not
+        // even try rendering them.
         let bounds = if let Some(notif_bounds) = notif_bounds
             && let Some(buttons) = self.action_buttons.as_mut()
             && let Some(first) = buttons.first()
             && first.style.opacity > 0.
         {
-            let gap = 8.;
             let mut bounds = notif_bounds;
-
-            let mut x = notif_bounds.x1;
-            let y = notif_bounds.y2 + gap;
 
             for button in buttons.iter_mut() {
                 let button_bounds = button
                     .r
-                    .render(cr, &button.style, x, y)
+                    .render(
+                        cr,
+                        &button.style,
+                        notif_bounds.x1 + button.base_x,
+                        notif_bounds.y2 + button.base_y,
+                    )
                     .context("Could not draw")?;
+
                 button.bounds = Some(button_bounds);
 
-                x = button_bounds.x2 + gap;
-                bounds.y2 = y + button_bounds.h();
+                // Extending the bounds that notification created to include the
+                // buttons from here.
+                bounds.y2 = button_bounds.y2;
             }
 
             Some(bounds)

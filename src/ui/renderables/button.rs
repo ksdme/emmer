@@ -15,18 +15,18 @@ pub struct Renderable {
 }
 
 impl Renderable {
-    pub fn new(config: &ComputedConfig, label: &str, padding: Insets) -> Self {
+    pub fn new(config: &ComputedConfig, label: &str, padding: Insets, max_w: Option<i32>) -> Self {
         Self {
-            padding,
-
             card_r: card::Renderable::new(),
             label_r: text::Renderable::new(
                 &config.theme.font_map,
                 &config.theme.body_font_description,
-                None,
-                None,
+                max_w.map(|w| w - (2. * padding.x) as i32),
+                Some(-1),
                 label,
             ),
+
+            padding,
         }
     }
 

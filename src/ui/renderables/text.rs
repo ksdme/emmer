@@ -27,7 +27,13 @@ impl Renderable {
             layout.set_width(w * pango::SCALE);
         }
         if let Some(h) = max_h {
-            layout.set_height(h * pango::SCALE);
+            if h < 0 {
+                // Limit to the number of lines of text instead.
+                layout.set_height(h);
+                layout.set_ellipsize(pango::EllipsizeMode::End);
+            } else {
+                layout.set_height(h * pango::SCALE);
+            }
         }
         layout.set_wrap(pango::WrapMode::Word);
 

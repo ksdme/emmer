@@ -196,15 +196,48 @@ impl Item {
         }
     }
 
+    fn reset_hovering_button(&mut self) -> bool {
+        if let Some(current) = self.hovering_button
+            && let Some(buttons) = self.action_buttons.as_mut()
+            && let Some(button) = buttons.get_mut(current)
+        {
+            // Rest tint on the current button.
+            button.transition = Some(button::StyleTransition::new(
+                Duration::from_millis(100),
+                button::PartialStyle {
+                    light: Some(0.),
+                    opacity: Some(1.),
+                },
+                None,
+            ));
+
+            self.hovering_button = None;
+
+            true
+        } else {
+            false
+        }
+    }
+
     pub fn on_hover(&mut self, event: &PointerEvent) -> Vec<AppCommand> {
         // Check if the hover was on the card itself.
         if let Some(bounds) = self.notif_bounds
             && bounds.contains(event.position)
         {
+            let mut commands = vec![];
+
+            // Since the hover target has now changed to the card, if there was already
+            // a button that was being hovered, reset it.
+            if self.reset_hovering_button() {
+                commands.push(AppCommand::Redraw);
+            }
+
             // If the notif is interactable at all.
             if self.implicit_action.is_some() || self.action_buttons.is_some() {
-                return vec![AppCommand::SetCursor(CursorIcon::Pointer)];
+                commands.push(AppCommand::SetCursor(CursorIcon::Pointer));
             }
+
+            return commands;
         }
 
         // Check if the hover was on the button instead.
@@ -231,21 +264,10 @@ impl Item {
                         None,
                     ));
 
-                    // Reset tint on the previous button.
-                    if let Some(previous) = self.hovering_button
-                        && let Some(buttons) = self.action_buttons.as_mut()
-                        && let Some(button) = buttons.get_mut(previous)
-                    {
-                        button.transition = Some(button::StyleTransition::new(
-                            Duration::from_millis(100),
-                            button::PartialStyle {
-                                light: Some(0.),
-                                opacity: Some(1.),
-                            },
-                            None,
-                        ));
-                    }
+                    // Clear the previous button.
+                    let _ = self.reset_hovering_button();
 
+                    // Track the current button.
                     self.hovering_button = Some(current);
 
                     // Trigger the draw loop only if something has changed here,
@@ -261,24 +283,11 @@ impl Item {
     }
 
     pub fn on_leave(&mut self, _event: &PointerEvent) -> Vec<AppCommand> {
-        // TODO: Should we redraw?
-        if let Some(id) = self.hovering_button
-            && let Some(buttons) = self.action_buttons.as_mut()
-            && let Some(button) = buttons.get_mut(id)
-        {
-            button.transition = Some(button::StyleTransition::new(
-                Duration::from_millis(100),
-                button::PartialStyle {
-                    light: Some(0.),
-                    opacity: Some(1.),
-                },
-                None,
-            ));
-
-            self.hovering_button = None;
+        if self.reset_hovering_button() {
+            vec![AppCommand::Redraw]
+        } else {
+            vec![]
         }
-
-        vec![]
     }
 
     /// The left click handler on the item. Returns a list of commands and also a bool

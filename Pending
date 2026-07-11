@@ -1,4 +1,3 @@
-- Un-hover transition does not work when not hovering buttons
 - Clamp height on image
 
 Feat
@@ -38,3 +37,4 @@ Done
 - Rounded thumnail image
 - Stacked offscreen ones explode out instead of implode
 - Multiple actions should wrap or just not be drawn
+- Un-hover transition does not work when not hovering buttons

@@ -44,6 +44,13 @@ pub enum ImageSource {
     Data(ImageData),
 }
 
+#[derive(Debug)]
+pub enum Urgency {
+    Low,
+    Normal,
+    Critical,
+}
+
 /// Represents an incoming notification item.
 #[derive(Debug)]
 pub struct Notification {
@@ -58,6 +65,9 @@ pub struct Notification {
 
     /// The image that should be attached to the notification.
     pub image: Option<ImageSource>,
+
+    /// The urgency level associated of the notification.
+    pub urgency: Urgency,
 
     /// The actions associated with the notification.
     pub actions: Vec<Action>,

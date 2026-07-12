@@ -1,5 +1,4 @@
 Current
-- Proper timeouts
 - Dismiss all button
 - Configuration file fixes
 
@@ -40,3 +39,4 @@ Done
 - Multiple actions should wrap or just not be drawn
 - Un-hover transition does not work when not hovering buttons
 - Clamp height on image
+- Proper urgency based timeouts

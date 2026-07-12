@@ -14,7 +14,7 @@ use zbus::{
 };
 
 use crate::{
-    dbus::notification::{self, ImageData, ImageSource},
+    dbus::notification::{self, ImageData, ImageSource, Urgency},
     ui::app::UIMessage,
 };
 
@@ -96,6 +96,16 @@ impl NotificationService {
                     .and_then(|data| image_from_data(data).ok())
             });
 
+        let urgency = match hints
+            .get("urgency")
+            .and_then(|value| u8::try_from(value).ok())
+        {
+            Some(0) => Urgency::Low,
+            Some(1) => Urgency::Normal,
+            Some(2) => Urgency::Critical,
+            Some(_) | None => Urgency::Normal,
+        };
+
         let actions = actions
             // https://specifications.freedesktop.org/notification/1.3/protocol.html#id-1.10.3.3.4
             .chunks(2)
@@ -111,7 +121,12 @@ impl NotificationService {
         let expires_at = if expire_timeout == 0 {
             None
         } else if expire_timeout < 0 {
-            Some(Instant::now() + Duration::from_secs(30))
+            match urgency {
+                // TODO: Maybe make the low and normal values configurable.
+                Urgency::Low => Some(Instant::now() + Duration::from_secs(5)),
+                Urgency::Normal => Some(Instant::now() + Duration::from_secs(10)),
+                Urgency::Critical => None,
+            }
         } else {
             Some(Instant::now() + Duration::from_millis(expire_timeout as u64))
         };
@@ -131,6 +146,7 @@ impl NotificationService {
                 Some(body.to_string())
             },
             image,
+            urgency,
             actions,
             expires_at,
         };

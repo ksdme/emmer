@@ -1,11 +1,11 @@
+Current
+- Proper timeouts
 - Dismiss all button
 - Configuration file fixes
-- Proper timeouts
 
-Feat
-- Center the image?
+Pending
 - Text alignment looks weird
-- Scrolling stack
+- Scrolling spread
 - Sounds and sound hints
 - Font parsing is weird and hard.
 - Animation smoothing
@@ -15,8 +15,9 @@ Feat
 - Cap frame rate (so we don't have missed frames)
 - HiDPI
 - Support alternative anchor positions
+- Center the image
 
-Test
+Tests
 - Clicking on notification should dismiss it and also activate the app
 
 Done

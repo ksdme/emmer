@@ -15,6 +15,8 @@ Pending
 - HiDPI
 - Support alternative anchor positions
 - Center the image
+- Multiple stacks
+- Rule based themeing
 
 Tests
 - Clicking on notification should dismiss it and also activate the app
@@ -40,3 +42,4 @@ Done
 - Un-hover transition does not work when not hovering buttons
 - Clamp height on image
 - Proper urgency based timeouts
+- Show times

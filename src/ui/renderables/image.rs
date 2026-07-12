@@ -13,7 +13,11 @@ pub struct Renderable {
 
 impl Renderable {
     /// Builds the instance of the renderable from the dbus image source.
-    pub fn from_source(source: notification::ImageSource, w: i32) -> Result<Self> {
+    pub fn from_source(
+        source: notification::ImageSource,
+        max_w: f64,
+        max_h: Option<f64>,
+    ) -> Result<Self> {
         match source {
             notification::ImageSource::File(path_buf) => {
                 let image = image::ImageReader::open(&path_buf)
@@ -24,7 +28,7 @@ impl Renderable {
                     .context("Could not decode image")?;
 
                 Ok(Self {
-                    surface: scaled_image_surface(image, w)
+                    surface: scaled_image_surface(image, max_w, max_h)
                         .context("Could not scale, create surface from image")?,
                 })
             }
@@ -50,7 +54,7 @@ impl Renderable {
                 };
 
                 Ok(Self {
-                    surface: scaled_image_surface(image, w)
+                    surface: scaled_image_surface(image, max_w, max_h)
                         .context("Could not scale, create surface from image")?,
                 })
             }
@@ -74,10 +78,22 @@ impl Renderable {
 }
 
 // Scales an image to w and returns a cairo surface from it.
-fn scaled_image_surface(image: image::DynamicImage, w: i32) -> Result<cairo::ImageSurface> {
+fn scaled_image_surface(
+    image: image::DynamicImage,
+    max_w: f64,
+    max_h: Option<f64>,
+) -> Result<cairo::ImageSurface> {
+    let cur_w = image.width() as f64;
+    let cur_h = image.height() as f64;
+
+    let mut factor = max_w / cur_w;
+    if let Some(max_h) = max_h {
+        factor = factor.min(max_h / cur_h);
+    }
+
     let scaled_image = image.resize(
-        w as u32,
-        ((w as f64 / image.width() as f64) * image.height() as f64) as u32,
+        (cur_w * factor).round() as u32,
+        (cur_h * factor).round() as u32,
         image::imageops::CatmullRom,
     );
 

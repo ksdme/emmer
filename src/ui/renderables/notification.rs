@@ -28,7 +28,7 @@ impl Renderable {
     ) -> Result<Self> {
         let image_r = if let Some(image_source) = image {
             logged!(
-                image::Renderable::from_source(image_source, 64)
+                image::Renderable::from_source(image_source, 64., Some(64.))
                     .context("Could not initialize image")
             )
             .ok()
@@ -36,8 +36,14 @@ impl Renderable {
             None
         };
 
-        // TODO: This should be a calculated value available here instead.
-        let inner_w = (config.width - 3. * config.padding.x - 64.) as i32;
+        let inner_w = (config.width
+            - (2. + if image_r.is_some() { 1. } else { 0. }) * config.padding.x
+            - image_r
+                .as_ref()
+                .map(|r| r.content_size())
+                .map(|(w, _)| w)
+                .unwrap_or(0.)) as i32;
+
         Ok(Self {
             width: config.width,
             padding: config.padding.clone(),

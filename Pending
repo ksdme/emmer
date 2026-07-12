@@ -1,4 +1,6 @@
-- Clamp height on image
+- Dismiss all button
+- Configuration file fixes
+- Proper timeouts
 
 Feat
 - Center the image?
@@ -6,10 +8,8 @@ Feat
 - Scrolling stack
 - Sounds and sound hints
 - Font parsing is weird and hard.
-- Dismiss all button
 - Animation smoothing
-- Priority based timeouts, themeing
-- Configuration file fixes
+- Better thememing
 - Default configuration file
 - Markup text
 - Cap frame rate (so we don't have missed frames)
@@ -38,3 +38,4 @@ Done
 - Stacked offscreen ones explode out instead of implode
 - Multiple actions should wrap or just not be drawn
 - Un-hover transition does not work when not hovering buttons
+- Clamp height on image

@@ -23,12 +23,21 @@ impl Color {
         }
     }
 
-    pub fn lighter(&self, amount: f64) -> Color {
+    pub fn with_lightness(&self, amount: f64) -> Color {
         Color {
             r: self.r + (1. - self.r) * amount,
             g: self.g + (1. - self.g) * amount,
             b: self.b + (1. - self.b) * amount,
             a: self.a + (1. - self.a) * amount,
+        }
+    }
+
+    pub fn with_alpha(&self, a: f64) -> Color {
+        Self {
+            r: self.r,
+            g: self.g,
+            b: self.b,
+            a,
         }
     }
 }

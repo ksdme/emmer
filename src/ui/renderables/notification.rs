@@ -14,17 +14,23 @@ pub struct Renderable {
     padding: Insets,
 
     card_r: card::Renderable,
+
+    image_r: Option<image::Renderable>,
     title_r: Option<text::Renderable>,
     body_r: Option<text::Renderable>,
-    image_r: Option<image::Renderable>,
+
+    app_r: Option<text::Renderable>,
+    created_at_r: Option<text::Renderable>,
 }
 
 impl Renderable {
     pub fn new(
         config: &ComputedConfig,
+        app: Option<&str>,
+        image: Option<notification::ImageSource>,
         title: Option<&str>,
         body: Option<&str>,
-        image: Option<notification::ImageSource>,
+        created_at: Option<&str>,
     ) -> Result<Self> {
         let image_r = if let Some(image_source) = image {
             logged!(
@@ -49,6 +55,8 @@ impl Renderable {
             padding: config.padding.clone(),
 
             card_r: card::Renderable::new(),
+
+            image_r,
             title_r: title.map(|title| {
                 text::Renderable::new(
                     &config.theme.font_map,
@@ -67,33 +75,78 @@ impl Renderable {
                     body,
                 )
             }),
-            image_r,
+
+            app_r: app.map(|app| {
+                text::Renderable::new(
+                    &config.theme.font_map,
+                    &config.theme.body_font_description,
+                    None,
+                    Some(-1),
+                    app,
+                )
+            }),
+            created_at_r: created_at.map(|created| {
+                text::Renderable::new(
+                    &config.theme.font_map,
+                    &config.theme.body_font_description,
+                    None,
+                    Some(-1),
+                    created,
+                )
+            }),
         })
     }
 
-    fn inner_height(&self) -> f64 {
-        let i_h = self
-            .image_r
-            .as_ref()
-            .map(|image| image.content_size())
-            .map(|(_, h)| h)
-            .unwrap_or(0.);
-
-        let t_h = self
+    // Height of the core contents.
+    fn content_height(&self) -> f64 {
+        let title_h = self
             .title_r
             .as_ref()
             .map(|title| title.content_size())
             .map(|(_, h)| h)
             .unwrap_or(0.);
 
-        let b_h = self
+        let body_h = self
             .body_r
             .as_ref()
             .map(|body| body.content_size())
             .map(|(_, h)| h)
             .unwrap_or(0.);
 
-        i_h.max(t_h + b_h + if t_h > 0. && b_h > 0. { 8. } else { 0. })
+        let image_h = self
+            .image_r
+            .as_ref()
+            .map(|image| image.content_size())
+            .map(|(_, h)| h)
+            .unwrap_or(0.);
+
+        image_h.max(title_h + body_h + if title_h > 0. && body_h > 0. { 8. } else { 0. })
+    }
+
+    // Height contributed by the non core contents.
+    fn meta_height(&self) -> f64 {
+        let name_h = self
+            .app_r
+            .as_ref()
+            .map(|r| r.content_size())
+            .map(|(_, h)| h)
+            .unwrap_or(0.);
+
+        let created_h = self
+            .created_at_r
+            .as_ref()
+            .map(|r| r.content_size())
+            .map(|(_, h)| h)
+            .unwrap_or(0.);
+
+        name_h.max(created_h)
+    }
+
+    // The total height of the non padding contents.
+    fn inner_height(&self) -> f64 {
+        let m_h = self.meta_height();
+        let c_h = self.content_height();
+        c_h + m_h + if c_h > 0. && m_h > 0. { 6. } else { 0. }
     }
 
     pub fn content_size(&self) -> (f64, f64) {
@@ -121,9 +174,9 @@ impl Renderable {
             cr.save()
                 .context("Could not save the current cairo state for clipping")?;
 
+            let content_h = self.inner_height();
             let avail_w = rect.w() - 2. * self.padding.x;
             let avail_h = rect.h() - 2. * self.padding.y;
-            let content_h = self.inner_height();
 
             let content_x = rect.x1 + self.padding.x;
             let content_y = if content_h > avail_h {
@@ -168,10 +221,31 @@ impl Renderable {
             let _content_y = match &self.body_r {
                 Some(body) => {
                     let (_, h) = body.render(cr, content_x, content_y, fg);
-                    content_y + h + 8.
+                    content_y + h + 4.
                 }
                 None => content_y,
             };
+
+            // The footer.
+            if let Some(app_r) = &self.app_r {
+                let (_, h) = app_r.content_size();
+                app_r.render(
+                    cr,
+                    rect.x1 + self.padding.x,
+                    rect.y2 - self.padding.y - h,
+                    fg.with_alpha(style.inner_opacity * 0.35),
+                );
+            }
+
+            if let Some(created_at_r) = &self.created_at_r {
+                let (w, h) = created_at_r.content_size();
+                created_at_r.render(
+                    cr,
+                    rect.x2 - self.padding.x - w,
+                    rect.y2 - self.padding.y - h,
+                    fg.with_alpha(style.inner_opacity * 0.35),
+                );
+            }
 
             cr.restore()
                 .context("Could not restore cairo state after clip")?;

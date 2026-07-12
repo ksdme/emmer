@@ -79,9 +79,11 @@ impl Item {
     ) -> Result<Self> {
         let notif_r = notification::Renderable::new(
             &config,
+            Some(&notif.app_name),
+            notif.image,
             notif.title.as_deref(),
             notif.body.as_deref(),
-            notif.image,
+            Some(notif.created_at.format("%-I:%M %P").to_string().as_str()),
         )
         .context("Could not initialize")?;
 

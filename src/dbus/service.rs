@@ -59,7 +59,7 @@ impl NotificationService {
 impl NotificationService {
     fn notify(
         &self,
-        _app_name: &str,
+        app_name: &str,
         _replaces_id: u32,
         app_icon: &str,
         summary: &str,
@@ -135,6 +135,8 @@ impl NotificationService {
         // https://specifications.freedesktop.org/notification/1.3/protocol.html
         let notif = notification::Notification {
             id,
+            app_name: app_name.to_string(),
+
             title: if summary.is_empty() {
                 None
             } else {
@@ -146,9 +148,12 @@ impl NotificationService {
                 Some(body.to_string())
             },
             image,
+
             urgency,
             actions,
+
             expires_at,
+            created_at: chrono::Local::now(),
         };
 
         match self.tx.send(UIMessage::Push(notif)) {

@@ -57,6 +57,9 @@ pub struct Notification {
     /// The id of the notification.
     pub id: u32,
 
+    /// The app that sent the notification.
+    pub app_name: String,
+
     /// The title.
     pub title: Option<String>,
 
@@ -74,4 +77,7 @@ pub struct Notification {
 
     /// The timeout of the notification.
     pub expires_at: Option<Instant>,
+
+    /// The datetime when the item was created.
+    pub created_at: chrono::DateTime<chrono::Local>,
 }

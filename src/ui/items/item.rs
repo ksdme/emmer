@@ -13,18 +13,11 @@ use crate::{
         service::CloseReason,
     },
     ui::{
-        items::stack::{AppCommand, Presentation},
+        anchors::{Anchor, VerticalAnchor},
+        items::stack::{AppCommand, Order, Presentation},
         renderables::{Rect, button, notification},
     },
 };
-
-#[derive(Debug, PartialEq, Clone, Copy)]
-pub enum VisualState {
-    Stacked { pos: usize, y: f64 },
-    StackedHidden { y: f64 },
-    Spread { y: f64 },
-    SpreadHidden { y: f64 },
-}
 
 /// Represents an action button.
 #[derive(Debug)]
@@ -55,7 +48,6 @@ pub struct Item {
     id: u32,
     expires_at: Option<Instant>,
 
-    visual_state: VisualState,
     dismissed: bool,
 
     notif_r: notification::Renderable,
@@ -75,7 +67,8 @@ impl Item {
     pub fn spawn(
         notif: Notification,
         config: Arc<ComputedConfig>,
-        presentation: &Presentation,
+        anchor: &Anchor,
+        presentation: Presentation,
     ) -> Result<Self> {
         let notif_r = notification::Renderable::new(
             &config,
@@ -86,13 +79,19 @@ impl Item {
             Some(notif.created_at.format("%-I:%M %P").to_string().as_str()),
         )
         .context("Could not initialize")?;
-
         let (w, h) = notif_r.content_size();
+
+        let l_h = anchor.layer_height;
+        let m_y = config.margin.y;
+        let gap = config.spread.gap;
+
         let notif_style = notification::Style {
             x: config.margin.x,
-            y: match presentation {
-                Presentation::Stack => -config.margin.y,
-                Presentation::Spread => config.margin.y - config.spread.gap - h,
+            y: match (presentation, anchor.vertical) {
+                (Presentation::Stacked, VerticalAnchor::Top) => -m_y,
+                (Presentation::Stacked, VerticalAnchor::Bottom) => l_h + m_y,
+                (Presentation::Spread, VerticalAnchor::Top) => m_y - gap - h,
+                (Presentation::Spread, VerticalAnchor::Bottom) => l_h - m_y + gap,
             },
 
             w,
@@ -158,7 +157,6 @@ impl Item {
             id: notif.id,
             expires_at: notif.expires_at,
 
-            visual_state: VisualState::StackedHidden { y: 0. },
             dismissed: false,
 
             notif_r,
@@ -363,177 +361,6 @@ impl Item {
         }
     }
 
-    /// Updates the transitions and the style of the item as per the visual state.
-    /// Returns the y position that the next visual element can start at if it does not
-    /// want to overlap with the current item.
-    // TODO: Transtions should not be applied if one towards the same target is underway.
-    pub fn set_visual_state(&mut self, visual_state: VisualState, now: Instant) -> f64 {
-        // The natural duration of a transition.
-        let duration = Duration::from_millis(200);
-        let fast_duration = Duration::from_millis(125);
-
-        let (notif_w, notif_h) = self.notif_r.content_size();
-        let (notif_transition, buttons_transition, y) = match visual_state {
-            VisualState::Stacked { pos: 0, y } => {
-                let notif_target = notification::Style {
-                    x: self.config.margin.x,
-                    y,
-
-                    w: notif_w,
-                    h: notif_h,
-
-                    outer_opacity: if self.dismissed { 0. } else { 1. },
-                    inner_opacity: if self.dismissed { 0. } else { 1. },
-                };
-
-                let buttons_target = button::Style {
-                    light: 0.,
-                    opacity: 0.,
-                };
-
-                (
-                    notification::StyleTransition::new(duration, notif_target.into(), Some(now)),
-                    button::StyleTransition::new(fast_duration, buttons_target.into(), Some(now)),
-                    y + notif_h,
-                )
-            }
-
-            VisualState::Stacked { pos, y } => {
-                let pos = pos as f64;
-
-                let h = notif_h.min(y - self.config.margin.y);
-                let notif_target = notification::Style {
-                    x: self.config.margin.x + pos * self.config.stack.inset,
-                    y: y + self.config.stack.peek - h,
-
-                    w: self.config.width - 2. * pos * self.config.stack.inset,
-                    h,
-
-                    outer_opacity: if self.dismissed { 0. } else { 1. },
-                    inner_opacity: 0.,
-                };
-
-                let buttons_target = button::Style {
-                    light: 0.,
-                    opacity: 0.,
-                };
-
-                (
-                    notification::StyleTransition::new(duration, notif_target.into(), Some(now)),
-                    button::StyleTransition::new(fast_duration, buttons_target.into(), Some(now)),
-                    y + self.config.stack.peek,
-                )
-            }
-
-            VisualState::StackedHidden { y } => {
-                let pos = self.config.stack.max_count as f64;
-
-                let h = notif_h.min(y - self.config.margin.y);
-                let notif_target = notification::Style {
-                    x: self.config.margin.x + pos * self.config.stack.inset,
-                    y: y + self.config.stack.peek - h,
-
-                    w: self.config.width - 2. * pos * self.config.stack.inset,
-                    h,
-
-                    outer_opacity: 0.,
-                    inner_opacity: 0.,
-                };
-
-                let buttons_target = button::Style {
-                    light: 0.,
-                    opacity: 0.,
-                };
-
-                (
-                    notification::StyleTransition::new(duration, notif_target.into(), Some(now)),
-                    button::StyleTransition::new(fast_duration, buttons_target.into(), Some(now)),
-                    y,
-                )
-            }
-
-            VisualState::Spread { y } => {
-                let notif_target = notification::Style {
-                    x: self.config.margin.x,
-                    y: if self.dismissed { y - notif_h } else { y },
-
-                    w: notif_w,
-                    h: notif_h,
-
-                    outer_opacity: if self.dismissed { 0. } else { 1. },
-                    inner_opacity: if self.dismissed { 0. } else { 1. },
-                };
-
-                let buttons_target = if self.buttons_visible && !self.dismissed {
-                    button::Style {
-                        light: 0.,
-                        opacity: 1.,
-                    }
-                } else {
-                    button::Style {
-                        light: 0.,
-                        opacity: 0.,
-                    }
-                };
-
-                let buttons_h = if self.buttons_visible {
-                    self.action_buttons
-                        .as_ref()
-                        // Assuming that the buttons are drawn and laid out in order meaning
-                        // the bottom most button must be the last item in the list.
-                        .and_then(|buttons| buttons.last())
-                        .map(|button| {
-                            let (_, h) = button.r.content_size();
-                            button.base_y + h
-                        })
-                        .unwrap_or_default()
-                } else {
-                    0.
-                };
-
-                (
-                    notification::StyleTransition::new(duration, notif_target.into(), Some(now)),
-                    button::StyleTransition::new(fast_duration, buttons_target.into(), Some(now)),
-                    y + notif_h + buttons_h + self.config.spread.gap,
-                )
-            }
-
-            VisualState::SpreadHidden { y } => {
-                let notif_target = notification::Style {
-                    x: self.config.margin.x,
-                    y: if self.dismissed { y - notif_h } else { y },
-
-                    w: notif_w,
-                    h: notif_h,
-
-                    outer_opacity: 0.,
-                    inner_opacity: 0.,
-                };
-
-                let buttons_target = button::Style {
-                    light: 0.,
-                    opacity: 0.,
-                };
-
-                (
-                    notification::StyleTransition::new(duration, notif_target.into(), Some(now)),
-                    button::StyleTransition::new(fast_duration, buttons_target.into(), Some(now)),
-                    y + self.config.stack.peek,
-                )
-            }
-        };
-
-        self.visual_state = visual_state;
-        self.notif_transition = Some(notif_transition);
-        if let Some(buttons) = self.action_buttons.as_mut() {
-            for button in buttons.iter_mut() {
-                button.transition = Some(buttons_transition.clone());
-            }
-        }
-
-        y
-    }
-
     /// Progresses all the transition attached to the item and returns a boolean
     /// indicating if all the transitions have completed.
     pub fn tick(&mut self, now: &Instant) -> bool {
@@ -639,5 +466,303 @@ impl Item {
 
     pub fn bounds(&self) -> Option<&Rect> {
         self.bounds.as_ref()
+    }
+}
+
+// Methods for managing visual state.
+impl Item {
+    fn stacked_target_style(
+        &self,
+        anchor: &Anchor,
+        order: Order,
+    ) -> (notification::PartialStyle, button::PartialStyle, f64) {
+        let peek = self.config.stack.peek;
+        let inset = self.config.stack.inset;
+
+        let m_x = self.config.margin.x;
+        let m_y = self.config.margin.y;
+
+        let (w, h) = self.notif_r.content_size();
+        let l_h = anchor.layer_height;
+
+        let (n_target, next) = match (anchor.vertical, order) {
+            // The first item should take the full size and be visible.
+            (VerticalAnchor::Top, Order::Visible(0, y)) => (
+                notification::Style {
+                    w,
+                    h,
+
+                    x: m_x,
+                    y,
+
+                    outer_opacity: if self.dismissed { 0. } else { 1. },
+                    inner_opacity: if self.dismissed { 0. } else { 1. },
+                },
+                if self.dismissed { y } else { y + h },
+            ),
+
+            // The other items should be stacked below the first and then have its
+            // contents be hidden.
+            (VerticalAnchor::Top, Order::Visible(position, y)) => {
+                let level = position as f64;
+
+                // This card could be taller than the previous ones, so, we need to
+                // account for that.
+                let h = h.min(y - m_y - peek);
+
+                (
+                    notification::Style {
+                        w: w - 2. * level * inset,
+                        h,
+
+                        x: m_x + level * inset,
+                        y: y + peek - h,
+
+                        outer_opacity: if self.dismissed { 0. } else { 1. },
+                        inner_opacity: 0.,
+                    },
+                    if self.dismissed { y } else { y + peek },
+                )
+            }
+
+            // The items that are not visible on the stack should still be placed near
+            // the end of the stack.
+            (VerticalAnchor::Top, Order::Overflown(position, y)) => {
+                let level = position as f64;
+
+                // Pick the height such that while the item slide upwards, it is still
+                // never visible above the other Visible cards.
+                let h = h.min(y - m_y - peek);
+
+                (
+                    notification::Style {
+                        w: w - 2. * level * inset,
+                        h,
+
+                        x: m_x + level * inset,
+                        y: y + peek - h,
+
+                        inner_opacity: 0.,
+                        outer_opacity: 0.,
+                    },
+                    y,
+                )
+            }
+
+            // The first item on the stack should be completely visible.
+            // The returned next value is the top of the current card.
+            (VerticalAnchor::Bottom, Order::Visible(0, y)) => (
+                notification::Style {
+                    w,
+                    h,
+
+                    x: m_x,
+                    y: y - h,
+
+                    outer_opacity: if self.dismissed { 0. } else { 1. },
+                    inner_opacity: if self.dismissed { 0. } else { 1. },
+                },
+                if self.dismissed { y } else { l_h - m_y - h },
+            ),
+
+            // The other items should be stacked below the first and then have its
+            // contents be hidden. But, the peeking of the item should be upwards.
+            (VerticalAnchor::Bottom, Order::Visible(position, y)) => {
+                let level = position as f64;
+
+                // This card could be taller than the previous ones, so, we need to
+                // account for that.
+                let h = h.min(l_h - y - m_y - peek);
+
+                (
+                    notification::Style {
+                        w: w - 2. * level * inset,
+                        h,
+
+                        x: m_x + level * inset,
+                        y: y - peek,
+
+                        inner_opacity: 0.,
+                        outer_opacity: if self.dismissed { 0. } else { 1. },
+                    },
+                    if self.dismissed { y } else { y - peek },
+                )
+            }
+
+            (VerticalAnchor::Bottom, Order::Overflown(position, y)) => {
+                let level = position as f64;
+
+                // Pick the height such that while the item slide downwards, it is still
+                // never visible above the other Visible cards.
+                let h = h.min(l_h - y - m_y - peek);
+
+                (
+                    notification::Style {
+                        w: w - 2. * level * inset,
+                        h,
+
+                        x: m_x + level * inset,
+                        y: y - h,
+
+                        inner_opacity: 0.,
+                        outer_opacity: 0.,
+                    },
+                    y,
+                )
+            }
+        };
+
+        let b_target = button::Style {
+            light: 0.,
+            opacity: 1.,
+        };
+
+        (n_target.into(), b_target.into(), next)
+    }
+
+    fn spread_target_style(
+        &self,
+        anchor: &Anchor,
+        order: Order,
+    ) -> (notification::PartialStyle, button::PartialStyle, f64) {
+        let gap = self.config.spread.gap;
+
+        let m_x = self.config.margin.x;
+        let (n_w, n_h) = self.notif_r.content_size();
+
+        let visible_buttons = button::Style {
+            light: 0.,
+            opacity: 1.,
+        };
+        let hidden_buttons = button::Style {
+            light: 0.,
+            opacity: 0.,
+        };
+
+        // The full height of the buttons block, if it should be visible.
+        let b_h = if self.buttons_visible {
+            self.action_buttons
+                .as_ref()
+                // Assuming that the buttons are drawn and laid out in order meaning
+                // the bottom most button must be the last item in the list.
+                .and_then(|buttons| buttons.last())
+                .map(|button| {
+                    let (_, h) = button.r.content_size();
+                    button.base_y + h
+                })
+                .unwrap_or(0.)
+        } else {
+            0.
+        };
+
+        let (n_target, b_target, next) = match (anchor.vertical, order) {
+            (VerticalAnchor::Top, Order::Visible(_, y)) => (
+                notification::Style {
+                    w: n_w,
+                    h: n_h,
+
+                    x: m_x,
+                    y: if self.dismissed { y - n_h - gap } else { y },
+
+                    outer_opacity: if self.dismissed { 0. } else { 1. },
+                    inner_opacity: if self.dismissed { 0. } else { 1. },
+                },
+                if self.buttons_visible && !self.dismissed {
+                    visible_buttons
+                } else {
+                    hidden_buttons
+                },
+                y + n_h + b_h + gap,
+            ),
+
+            (VerticalAnchor::Top, Order::Overflown(_, y)) => (
+                notification::Style {
+                    w: n_w,
+                    h: n_h,
+
+                    x: m_x,
+                    y,
+
+                    outer_opacity: 0.,
+                    inner_opacity: 0.,
+                },
+                hidden_buttons,
+                y,
+            ),
+
+            (VerticalAnchor::Bottom, Order::Visible(_, y)) => (
+                notification::Style {
+                    w: n_w,
+                    h: n_h,
+
+                    x: m_x,
+                    y: if self.dismissed {
+                        y + n_h + gap
+                    } else {
+                        y - n_h
+                    },
+
+                    outer_opacity: if self.dismissed { 0. } else { 1. },
+                    inner_opacity: if self.dismissed { 0. } else { 1. },
+                },
+                if self.buttons_visible && !self.dismissed {
+                    visible_buttons
+                } else {
+                    hidden_buttons
+                },
+                y - b_h - gap,
+            ),
+
+            (VerticalAnchor::Bottom, Order::Overflown(_, y)) => (
+                notification::Style {
+                    w: n_w,
+                    h: n_h,
+
+                    x: m_x,
+                    y: y - n_h,
+
+                    outer_opacity: 0.,
+                    inner_opacity: 0.,
+                },
+                hidden_buttons,
+                y,
+            ),
+        };
+
+        (n_target.into(), b_target.into(), next)
+    }
+
+    /// Updates the transitions and the style of the item as per the visual state.
+    /// Returns the y position that the next visual element can start at if it does not
+    /// want to overlap with the current item.
+    // TODO: Transtions should not be applied if one towards the same target is underway.
+    pub fn set_visual_state(
+        &mut self,
+        anchor: &Anchor,
+        layout: Presentation,
+        order: Order,
+        now: Option<Instant>,
+    ) -> f64 {
+        let (n_transition, b_transition, next) = match layout {
+            Presentation::Stacked => self.stacked_target_style(anchor, order),
+            Presentation::Spread => self.spread_target_style(anchor, order),
+        };
+
+        self.notif_transition = Some(notification::StyleTransition::new(
+            Duration::from_millis(200),
+            n_transition,
+            now,
+        ));
+        if let Some(buttons) = self.action_buttons.as_mut() {
+            for button in buttons.iter_mut() {
+                button.transition = Some(button::StyleTransition::new(
+                    Duration::from_millis(125),
+                    b_transition.clone(),
+                    now,
+                ));
+            }
+        }
+
+        next
     }
 }

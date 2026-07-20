@@ -1,5 +1,7 @@
 use pango::FontDescription;
 
+use crate::ui::anchors::{Anchor, HorizontalAnchor, VerticalAnchor};
+
 #[derive(Debug, Clone)]
 pub struct Insets {
     /// The measure in the horizontal axis.
@@ -96,6 +98,8 @@ pub struct ComputedConfig {
     pub margin: Insets,
     pub padding: Insets,
 
+    pub anchors: (HorizontalAnchor, VerticalAnchor),
+
     pub stack: StackConfig,
     pub spread: SpreadConfig,
 
@@ -107,6 +111,8 @@ impl ComputedConfig {
         Self {
             debug_mode,
 
+            anchors: (HorizontalAnchor::Right, VerticalAnchor::Top),
+
             width: config.width,
             margin: config.margin,
             padding: config.padding,
@@ -115,6 +121,16 @@ impl ComputedConfig {
             spread: config.spread,
 
             theme: Theme::from(config.theme),
+        }
+    }
+
+    pub fn anchor(&self, l_w: f64, l_h: f64) -> Anchor {
+        Anchor {
+            horizontal: self.anchors.0,
+            vertical: self.anchors.1,
+
+            layer_width: l_w,
+            layer_height: l_h,
         }
     }
 }

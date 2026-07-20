@@ -11,10 +11,25 @@ use crate::{
     config::ComputedConfig,
     dbus::{notification::Notification, service::CloseReason},
     ui::{
-        items::{Item, item::VisualState},
+        anchors::{Anchor, VerticalAnchor},
+        items::Item,
         renderables::Rect,
     },
 };
+
+/// The presentation of the current stack.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum Presentation {
+    Stacked,
+    Spread,
+}
+
+/// The order of the item.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum Order {
+    Visible(usize, f64),
+    Overflown(usize, f64),
+}
 
 #[derive(Debug)]
 pub enum AppCommand {
@@ -24,39 +39,36 @@ pub enum AppCommand {
     NotifyAction(u32, String),
 }
 
-/// Represents the presentation mode of the stack.
-#[derive(Debug, Clone, PartialEq)]
-pub enum Presentation {
-    Stack,
-    Spread,
-}
-
 /// The container for the items.
 pub struct Stack {
     config: Arc<ComputedConfig>,
+    anchor: Anchor,
+    presentation: Presentation,
 
     items: BTreeMap<u32, Item>,
-    presentation: Presentation,
 
     bounds: Option<Rect>,
     hovering: Option<u32>,
 }
 
 impl Stack {
-    pub fn new(config: Arc<ComputedConfig>) -> Self {
+    pub fn new(config: Arc<ComputedConfig>, anchor: Anchor) -> Self {
         Self {
             config,
+            anchor,
+            presentation: Presentation::Stacked,
 
             items: BTreeMap::new(),
-            presentation: Presentation::Stack,
 
             bounds: None,
             hovering: None,
         }
     }
 
-    pub fn len(&self) -> usize {
-        self.items.len()
+    /// Update the anchor of the stack.
+    pub fn set_anchor(&mut self, anchor: Anchor) {
+        self.anchor = anchor;
+        self.update_visual_states();
     }
 
     // TODO: This needs to be as efficient as possible.
@@ -84,8 +96,13 @@ impl Stack {
     /// Pushes an item to the stack and returns a list of resulting side effects.
     pub fn push(&mut self, notification: Notification) -> Result<Vec<AppCommand>> {
         log::info!("stack.push: {:?}", notification.id);
-        let item = Item::spawn(notification, self.config.clone(), &self.presentation)
-            .context("Could not spawn item")?;
+        let item = Item::spawn(
+            notification,
+            self.config.clone(),
+            &self.anchor,
+            self.presentation,
+        )
+        .context("Could not spawn item")?;
 
         self.items.insert(item.id(), item);
         self.update_visual_states();
@@ -132,46 +149,66 @@ impl Stack {
     }
 
     fn update_visual_states(&mut self) {
-        let now = Instant::now();
+        let now = Some(Instant::now());
+
+        let mut y = match self.anchor.vertical {
+            VerticalAnchor::Top => self.config.margin.y,
+            VerticalAnchor::Bottom => self.anchor.layer_height - self.config.margin.y,
+        };
 
         match self.presentation {
-            Presentation::Stack => {
+            Presentation::Stacked => {
                 let mut no = 0;
-                let mut top_y = self.config.margin.y;
 
                 for (_, item) in self.items.iter_mut().rev() {
                     if no < self.config.stack.max_count {
-                        let y =
-                            item.set_visual_state(VisualState::Stacked { pos: no, y: top_y }, now);
+                        y = item.set_visual_state(
+                            &self.anchor,
+                            Presentation::Stacked,
+                            Order::Visible(no, y),
+                            now,
+                        );
 
-                        // If an item is dismissed, then we expect that the next item replaces
-                        // its visual position.
+                        // If an item is dismissed, we expect that the next item replaces its
+                        // visual position.
                         if !item.was_dismissed() {
                             no += 1;
-                            top_y = y;
                         }
                     } else {
-                        let _ = item.set_visual_state(VisualState::StackedHidden { y: top_y }, now);
+                        y = item.set_visual_state(
+                            &self.anchor,
+                            Presentation::Stacked,
+                            Order::Overflown(no, y),
+                            now,
+                        );
                     }
                 }
             }
 
             Presentation::Spread => {
                 let mut no = 0;
-                let mut top_y = self.config.margin.y;
 
                 for (_, item) in self.items.iter_mut().rev() {
                     if no < self.config.spread.max_count {
-                        let y = item.set_visual_state(VisualState::Spread { y: top_y }, now);
+                        y = item.set_visual_state(
+                            &self.anchor,
+                            Presentation::Spread,
+                            Order::Visible(no, y),
+                            now,
+                        );
 
-                        // If an item is dismissed, then we expect that the next item replaces
-                        // its visual position.
+                        // If an item is dismissed, we expect that the next item replaces its
+                        // visual position.
                         if !item.was_dismissed() {
                             no += 1;
-                            top_y = y;
                         }
                     } else {
-                        let _ = item.set_visual_state(VisualState::SpreadHidden { y: top_y }, now);
+                        y = item.set_visual_state(
+                            &self.anchor,
+                            Presentation::Spread,
+                            Order::Overflown(no, y),
+                            now,
+                        );
                     }
                 }
             }
@@ -213,7 +250,7 @@ impl Stack {
     /// The handler for when the pointer leaves the bounds of this stack.
     /// This method is only expected to be called once after a leave happens.
     pub fn on_leave(&mut self) -> Vec<AppCommand> {
-        self.set_presentation(Presentation::Stack);
+        self.set_presentation(Presentation::Stacked);
 
         vec![
             AppCommand::Redraw,

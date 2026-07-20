@@ -15,7 +15,7 @@ use smithay_client_toolkit::{
     },
     shell::{
         WaylandSurface,
-        wlr_layer::{Anchor, Layer, LayerShell, LayerShellHandler, LayerSurface},
+        wlr_layer::{self, Layer, LayerShell, LayerShellHandler, LayerSurface},
     },
     shm::{Shm, ShmHandler},
 };
@@ -37,6 +37,7 @@ use crate::{
     logged,
     ui::{
         activation::ActivationRequestData,
+        anchors::{Anchor, HorizontalAnchor},
         buffers::BufferPool,
         items::{Stack, stack::AppCommand},
     },
@@ -65,9 +66,7 @@ pub struct App {
     buffer_pool: Mutex<BufferPool<3>>,
 
     config: Arc<ComputedConfig>,
-
-    width: i32,
-    height: i32,
+    anchor: Anchor,
 
     stack: Stack,
     stack_hovering: bool,
@@ -183,9 +182,10 @@ impl LayerShellHandler for App {
     ) {
         log::debug!(target: "emmer::wl::layer_shell", "configure: {configure:?}");
 
+        // Update the anchors.
         let (w, h) = configure.new_size;
-        self.width = w as i32;
-        self.height = h as i32;
+        self.anchor = self.config.anchor(w as f64, h as f64);
+        self.stack.set_anchor(self.anchor.clone());
 
         // Buffers should be recreated on the frame callback.
         let surface = layer.wl_surface();
@@ -421,6 +421,9 @@ impl App {
         let layer_shell = LayerShell::bind(&globals, &q_handle)
             .context("Could not bind for zwlr_layer_shell_v1 events")?;
 
+        let (w, h) = (config.width + 2. * config.margin.x, 0);
+        let anchor = config.anchor(w as f64, 0.);
+
         let surface = compositor_state.create_surface(&q_handle);
         let layer_surface = layer_shell.create_layer_surface(
             &q_handle,
@@ -430,8 +433,15 @@ impl App {
             None,
         );
 
-        let (w, h) = (config.width + 2. * config.margin.x, 0);
-        layer_surface.set_anchor(Anchor::TOP | Anchor::BOTTOM | Anchor::RIGHT);
+        layer_surface.set_anchor(
+            wlr_layer::Anchor::TOP
+                | wlr_layer::Anchor::BOTTOM
+                | match anchor.horizontal {
+                    HorizontalAnchor::Left => wlr_layer::Anchor::LEFT,
+                    HorizontalAnchor::Center => wlr_layer::Anchor::empty(),
+                    HorizontalAnchor::Right => wlr_layer::Anchor::RIGHT,
+                },
+        );
         layer_surface.set_size(w as u32, h);
 
         // Set empty input region.
@@ -472,11 +482,9 @@ impl App {
                 buffer_pool: Mutex::new(buffer_pool),
 
                 config: config.clone(),
+                anchor: anchor.clone(),
 
-                width: 0,
-                height: 0,
-
-                stack: Stack::new(config),
+                stack: Stack::new(config, anchor),
                 stack_hovering: false,
             },
             event_queue,
@@ -497,9 +505,9 @@ impl App {
         // queue another frame callback and skip this frame.
         let (frame_buffer, mem) = match buffer_pool
             .get(
-                self.width as u32,
-                self.width as u32 * 4,
-                self.height as u32,
+                self.anchor.layer_width as u32,
+                self.anchor.layer_width as u32 * 4,
+                self.anchor.layer_height as u32,
                 wl_shm::Format::Argb8888,
             )
             .context("Could not get a buffer")?
@@ -531,9 +539,9 @@ impl App {
             cairo::ImageSurface::create_for_data_unsafe(
                 mem.as_mut_ptr(),
                 cairo::Format::ARgb32,
-                self.width,
-                self.height,
-                self.width * 4,
+                self.anchor.layer_width as i32,
+                self.anchor.layer_height as i32,
+                self.anchor.layer_width as i32 * 4,
             )
         }
         .context("Could not create cairo surface")?;
@@ -547,7 +555,7 @@ impl App {
             let (x, y) = (bounds.x1 as i32 - 8, bounds.y1 as i32 - 8);
             let (w, h) = (
                 bounds.w() as i32 + 16,
-                self.height.min(bounds.h() as i32 + 16),
+                self.anchor.layer_height.min(bounds.h() + 16.) as i32,
             );
 
             region.add(x, y, w, h);
@@ -569,7 +577,12 @@ impl App {
             .attach_to(wl_surface)
             .context("Could not attach buffer")?;
 
-        wl_surface.damage_buffer(0, 0, self.width, self.height);
+        wl_surface.damage_buffer(
+            0,
+            0,
+            self.anchor.layer_width as i32,
+            self.anchor.layer_height as i32,
+        );
         if !settled {
             wl_surface.frame(&self.queue_handle, wl_surface.clone());
         }

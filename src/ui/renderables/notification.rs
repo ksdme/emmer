@@ -4,7 +4,10 @@ use crate::{
     config::{ComputedConfig, Insets},
     dbus::notification,
     logged,
-    ui::renderables::{Color, Rect, card, image, text},
+    ui::{
+        anchors::VerticalAnchor,
+        renderables::{Color, Rect, card, image, text},
+    },
 };
 
 /// Renders a notification card.
@@ -153,7 +156,12 @@ impl Renderable {
         (self.width, self.inner_height() + 2. * self.padding.y)
     }
 
-    pub fn render(&self, cr: &cairo::Context, style: &Style) -> Result<Rect> {
+    pub fn render(
+        &self,
+        cr: &cairo::Context,
+        style: &Style,
+        clip_anchor: VerticalAnchor,
+    ) -> Result<Rect> {
         // The base.
         let rect = self
             .card_r
@@ -180,13 +188,18 @@ impl Renderable {
 
             let content_x = rect.x1 + self.padding.x;
             let content_y = if content_h > avail_h {
+                // Clip the extra content.
                 cr.rectangle(content_x, rect.y1 + self.padding.y, avail_w, avail_h);
                 cr.clip();
 
-                // Since the clip is a fixed window, the easiest way to anchor to bottom
-                // is to do it during the draw.
-                // TODO: Does bottom anchoring work in all cases?
-                rect.y1 + self.padding.y - (content_h - avail_h)
+                // Since the clip is a fixed window, the easiest way to anchor content is to
+                // do it using an offset.
+                rect.y1
+                    + self.padding.y
+                    + match clip_anchor {
+                        VerticalAnchor::Top => 0.,
+                        VerticalAnchor::Bottom => -(content_h - avail_h),
+                    }
             } else {
                 rect.y1 + self.padding.y
             };

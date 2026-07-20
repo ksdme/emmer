@@ -49,7 +49,7 @@ impl Renderable {
                 Color::from_rgba_u8(52, 52, 52, style.opacity).with_lightness(style.light),
                 1.,
                 Some(Color::from_rgba_u8(102, 102, 102, style.opacity)),
-                18.,
+                4.,
             )
             .context("Could not draw background")?;
 

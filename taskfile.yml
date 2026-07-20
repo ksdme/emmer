@@ -6,13 +6,13 @@ tasks:
       - systemctl stop --user mako.service
       - RUST_LOG=emmer=debug cargo run -- --debug-mode
 
-  single:
+  long:
     cmds:
-      - notify-send "Message" "This is the body of the notification." --icon file:///home/ksdme/me/emmer/data/rust.png
+      - notify-send "Long Message" "This is a very long piece of text. This line of text will make it even longer. The third line might just make it too much. I think I need another line to make it even longer." --icon file:///home/ksdme/me/emmer/data/rust.png
 
-  action:
+  short:
     cmds:
-      - notify-send "Message" "This is the body of the notification." --icon file:///home/ksdme/me/emmer/data/rust.png --action=hello=Hello --action=world=World
+      - notify-send "Short Message" "This is a short card." --icon file:///home/ksdme/me/emmer/data/rust.png
 
   flood:
     cmds:

@@ -401,12 +401,16 @@ impl Item {
     }
 
     /// Renders the current item to a cairo canvas and returns its rect bounds.
-    pub fn render(&mut self, cr: &cairo::Context) -> Result<Option<Rect>> {
+    pub fn render(
+        &mut self,
+        cr: &cairo::Context,
+        clip_anchor: VerticalAnchor,
+    ) -> Result<Option<Rect>> {
         // If the card is not visible, do not even try rendering.
         let notif_bounds = if self.notif_style.outer_opacity > 0. {
             let notif_bounds = self
                 .notif_r
-                .render(cr, &self.notif_style)
+                .render(cr, &self.notif_style, clip_anchor)
                 .context("Could not render notification")?;
             self.notif_bounds = Some(notif_bounds);
 
@@ -614,7 +618,7 @@ impl Item {
 
         let b_target = button::Style {
             light: 0.,
-            opacity: 1.,
+            opacity: 0.,
         };
 
         (n_target.into(), b_target.into(), next)
@@ -672,7 +676,11 @@ impl Item {
                 } else {
                     hidden_buttons
                 },
-                y + n_h + b_h + gap,
+                if self.dismissed {
+                    y
+                } else {
+                    y + n_h + b_h + gap
+                },
             ),
 
             (VerticalAnchor::Top, Order::Overflown(_, y)) => (
@@ -699,7 +707,7 @@ impl Item {
                     y: if self.dismissed {
                         y + n_h + gap
                     } else {
-                        y - n_h
+                        y - n_h - b_h
                     },
 
                     outer_opacity: if self.dismissed { 0. } else { 1. },
@@ -710,7 +718,11 @@ impl Item {
                 } else {
                     hidden_buttons
                 },
-                y - b_h - gap,
+                if self.dismissed {
+                    y
+                } else {
+                    y - n_h - b_h - gap
+                },
             ),
 
             (VerticalAnchor::Bottom, Order::Overflown(_, y)) => (

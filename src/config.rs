@@ -111,7 +111,7 @@ impl ComputedConfig {
         Self {
             debug_mode,
 
-            anchors: (HorizontalAnchor::Right, VerticalAnchor::Top),
+            anchors: (HorizontalAnchor::Right, VerticalAnchor::Bottom),
 
             width: config.width,
             margin: config.margin,

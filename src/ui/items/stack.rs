@@ -76,10 +76,12 @@ impl Stack {
     pub fn find_at_mut(&mut self, at: (f64, f64)) -> Option<&mut Item> {
         for el in self.items.values_mut().rev() {
             if let Some(hitbox) = el.bounds() {
-                // TODO: Requires fixes when allowed alt anchors.
                 // Given that values are sorted, we can abort as soon as we
                 // find one item that is definitely out of the pointer box.
-                if hitbox.y1 > at.1 {
+                if match self.anchor.vertical {
+                    VerticalAnchor::Top => hitbox.y1 > at.1,
+                    VerticalAnchor::Bottom => hitbox.y2 < at.1,
+                } {
                     break;
                 }
 
@@ -305,7 +307,16 @@ impl Stack {
             let item_settled = item.tick(&now);
 
             // Render and update the scene bounds.
-            if let Some(bounds) = item.render(cx).context("Could not render item: {id}")? {
+            if let Some(bounds) = item
+                .render(
+                    cx,
+                    match self.anchor.vertical {
+                        VerticalAnchor::Top => VerticalAnchor::Bottom,
+                        VerticalAnchor::Bottom => VerticalAnchor::Top,
+                    },
+                )
+                .context("Could not render item: {id}")?
+            {
                 let fb = full_bounds.get_or_insert(bounds);
                 fb.x1 = fb.x1.min(bounds.x1);
                 fb.y1 = fb.y1.min(bounds.y1);

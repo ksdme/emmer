@@ -1,6 +1,7 @@
 Current
 - Dismiss all button
 - Configuration file fixes
+- Dismiss goes too far down sometimes
 
 Pending
 - Text alignment looks weird
@@ -13,7 +14,6 @@ Pending
 - Markup text
 - Cap frame rate (so we don't have missed frames)
 - HiDPI
-- Support alternative anchor positions
 - Center the image
 - Multiple stacks
 - Rule based themeing
@@ -43,3 +43,8 @@ Done
 - Clamp height on image
 - Proper urgency based timeouts
 - Show times
+- Support alternative anchor positions
+    - Reverse clipping direction
+    - Reverse find_at short circuit path
+    - Setup horizontal surface
+    - Buttons in bottom anchor are below the margin

@@ -7,7 +7,7 @@ pub enum HorizontalAnchor {
 }
 
 /// The vertical anchor position.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum VerticalAnchor {
     Top,
     Bottom,

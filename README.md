@@ -3,7 +3,7 @@
 A Wayland notification daemon, inspired by [Sonner](https://sonner.emilkowal.ski/).
 
 <p align="center" width="100%">
-  <video src="https://github.com/user-attachments/assets/563d36e5-1c92-49e6-aa88-c873a20ddf1d" width="80%" controls />
+  <video src="https://github.com/user-attachments/assets/a842ff3a-3e77-4ee4-9f23-1353ccbddd66" width="80%" controls />
 </p>
 
 ## Stack

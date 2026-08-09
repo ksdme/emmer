@@ -2,7 +2,9 @@
 
 A Wayland notification daemon, inspired by [Sonner](https://sonner.emilkowal.ski/).
 
-https://user-images.githubusercontent.com/6877923/115474571-03c75800-a23e-11eb-8096-8973aad5fa9f.mp4
+<p align="center" width="100%">
+  <video src="https://github.com/user-attachments/assets/563d36e5-1c92-49e6-aa88-c873a20ddf1d" width="80%" controls />
+</p>
 
 ## Stack
 

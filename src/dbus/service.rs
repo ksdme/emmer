@@ -50,7 +50,7 @@ pub struct NotificationService {
 impl NotificationService {
     pub fn new(tx: channel::Sender<UIMessage>) -> Self {
         Self {
-            id_counter: AtomicU32::default(),
+            id_counter: AtomicU32::new(1),
             tx,
         }
     }

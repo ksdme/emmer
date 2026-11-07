@@ -12,7 +12,7 @@ use crate::{
     dbus::{notification::Notification, service::CloseReason},
     ui::{
         anchors::{Anchor, VerticalAnchor},
-        items::{HitTarget, Item},
+        items::{Item, layout::Layout},
         renderables::Rect,
     },
 };
@@ -22,13 +22,6 @@ use crate::{
 pub enum Presentation {
     Stacked,
     Spread,
-}
-
-/// The order of the item.
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub enum Order {
-    Visible(usize, f64),
-    Overflown(usize, f64),
 }
 
 #[derive(Debug)]
@@ -68,6 +61,9 @@ impl Stack {
     /// Update the anchor of the stack.
     pub fn set_anchor(&mut self, anchor: Anchor) {
         self.anchor = anchor;
+        for item in self.items.values_mut() {
+            item.set_anchor(&self.anchor);
+        }
         self.update_visual_states();
     }
 
@@ -98,13 +94,8 @@ impl Stack {
     /// Pushes an item to the stack and returns a list of resulting side effects.
     pub fn push(&mut self, notification: Notification) -> Result<Vec<AppCommand>> {
         log::info!("stack.push: {:?}", notification.id);
-        let item = Item::spawn(
-            notification,
-            self.config.clone(),
-            &self.anchor,
-            self.presentation,
-        )
-        .context("Could not spawn item")?;
+        let item = Item::spawn(notification, self.config.clone(), &self.layout())
+            .context("Could not spawn item")?;
 
         self.items.insert(item.id(), item);
         self.update_visual_states();
@@ -138,11 +129,7 @@ impl Stack {
             log::info!("stack.set_presentation: {:?}", presentation);
 
             self.presentation = presentation;
-            // When we have only one item, trying to transition visual state here
-            // will only make it look jarring to look at.
-            if self.items.len() > 1 {
-                self.update_visual_states();
-            }
+            self.update_visual_states();
 
             true
         } else {
@@ -150,70 +137,29 @@ impl Stack {
         }
     }
 
+    fn layout(&self) -> Layout<'_> {
+        Layout {
+            anchor: &self.anchor,
+            presentation: self.presentation,
+
+            margin_x: self.config.margin.x,
+            stack: &self.config.stack,
+            spread: &self.config.spread,
+
+            origin: self.config.margin.y,
+        }
+    }
+
+    // Lays out the items and moves each of them towards their new target.
     fn update_visual_states(&mut self) {
-        let now = Some(Instant::now());
+        let now = Instant::now();
 
-        let mut y = match self.anchor.vertical {
-            VerticalAnchor::Top => self.config.margin.y,
-            VerticalAnchor::Bottom => self.anchor.layer_height - self.config.margin.y,
-        };
+        let targets = self
+            .layout()
+            .targets(self.items.values().rev().map(Item::layout_input));
 
-        match self.presentation {
-            Presentation::Stacked => {
-                let mut no = 0;
-
-                for (_, item) in self.items.iter_mut().rev() {
-                    if no < self.config.stack.max_count {
-                        y = item.set_visual_state(
-                            &self.anchor,
-                            Presentation::Stacked,
-                            Order::Visible(no, y),
-                            now,
-                        );
-
-                        // If an item is dismissed, we expect that the next item replaces its
-                        // visual position.
-                        if !item.was_dismissed() {
-                            no += 1;
-                        }
-                    } else {
-                        y = item.set_visual_state(
-                            &self.anchor,
-                            Presentation::Stacked,
-                            Order::Overflown(no, y),
-                            now,
-                        );
-                    }
-                }
-            }
-
-            Presentation::Spread => {
-                let mut no = 0;
-
-                for (_, item) in self.items.iter_mut().rev() {
-                    if no < self.config.spread.max_count {
-                        y = item.set_visual_state(
-                            &self.anchor,
-                            Presentation::Spread,
-                            Order::Visible(no, y),
-                            now,
-                        );
-
-                        // If an item is dismissed, we expect that the next item replaces its
-                        // visual position.
-                        if !item.was_dismissed() {
-                            no += 1;
-                        }
-                    } else {
-                        y = item.set_visual_state(
-                            &self.anchor,
-                            Presentation::Spread,
-                            Order::Overflown(no, y),
-                            now,
-                        );
-                    }
-                }
-            }
+        for (item, target) in self.items.values_mut().rev().zip(targets) {
+            item.set_target(target, now);
         }
     }
 
@@ -292,8 +238,8 @@ impl Stack {
     }
 
     // Renders the stack to the cairo canvas and returns a bool indicating if all the item
-    // transitions have settled and the visual bounds of the stack.
-    pub fn render(&mut self, cx: &cairo::Context) -> Result<(Option<Rect>, bool)> {
+    // transitions have settled.
+    pub fn render(&mut self, cx: &cairo::Context) -> Result<bool> {
         let now = Instant::now();
 
         let mut settled = true;
@@ -332,7 +278,7 @@ impl Stack {
         }
 
         self.bounds = full_bounds;
-        Ok((full_bounds, settled))
+        Ok(settled)
     }
 
     pub fn bounds(&self) -> Option<&Rect> {

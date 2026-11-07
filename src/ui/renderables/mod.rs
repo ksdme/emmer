@@ -166,7 +166,7 @@ macro_rules! transitionable {
             $($field:ident : $ty:ty),* $(,)?
         }
     ) => {
-        #[derive(Clone, Debug, Default)]
+        #[derive(Clone, Debug, Default, PartialEq)]
         pub struct $name {
             $(pub $field: $ty,)*
         }

@@ -585,8 +585,8 @@ impl App {
             .context("Could not create cairo surface")?;
             let cx = cairo::Context::new(&surface).context("Could not create cairo context")?;
 
-            let (bounds, settled) = self.stack.render(&cx).context("Could not render stack")?;
-            let input_rect = bounds.map(|bounds| {
+            let settled = self.stack.render(&cx).context("Could not render stack")?;
+            let input_rect = self.stack.bounds().map(|bounds| {
                 let x1 = (bounds.x1 - 8.).max(0.);
                 let y1 = (bounds.y1 - 8.).max(0.);
                 let x2 = (bounds.x2 + 8.).min(self.anchor.layer_width);

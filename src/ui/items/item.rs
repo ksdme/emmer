@@ -15,8 +15,8 @@ use crate::{
     ui::{
         anchors::{Anchor, VerticalAnchor},
         items::{
-            HitTarget,
-            stack::{AppCommand, Order, Presentation},
+            layout::{self, Layout},
+            stack::AppCommand,
         },
         renderables::{
             Rect, RectTransition, Renderable, Transition, Transitionable, button, notification,
@@ -38,9 +38,6 @@ pub struct ActionButton {
     // of the notification card.
     base_x: f64,
     base_y: f64,
-
-    // The rect the button occupies in the current layout, if it is interactable.
-    target: Option<Rect>,
 }
 
 impl ActionButton {
@@ -50,12 +47,6 @@ impl ActionButton {
             card.y2 + self.base_y,
             self.r.measure(),
         )
-    }
-}
-
-impl HitTarget for ActionButton {
-    fn target(&self) -> Option<Rect> {
-        self.target
     }
 }
 
@@ -83,18 +74,15 @@ pub struct Item {
     hovering_button: Option<usize>,
     buttons_visible: bool,
 
-    // The rects the card and the whole item occupy in the current layout, if
-    // they are interactable.
-    notif_target: Option<Rect>,
-    target: Option<Rect>,
+    // The target the item was last laid out at, if it has been laid out yet.
+    layout_target: Option<layout::Target>,
 }
 
 impl Item {
     pub fn spawn(
         notif: Notification,
         config: Arc<ComputedConfig>,
-        anchor: &Anchor,
-        presentation: Presentation,
+        layout: &Layout,
     ) -> Result<Self> {
         let mut notif_r = notification::Notification::new(
             &config,
@@ -105,25 +93,12 @@ impl Item {
             Some(notif.created_at.format("%-I:%M %P").to_string().as_str()),
         )
         .context("Could not initialize")?;
-        notif_r.set_clip_anchor(clip_anchor(anchor));
+        notif_r.set_clip_anchor(clip_anchor(layout.anchor));
 
         let size = notif_r.measure();
-        let (w, h) = (size.w, size.h);
+        let w = size.w;
 
-        let l_h = anchor.layer_height;
-        let m_y = config.margin.y;
-        let gap = config.spread.gap;
-
-        let notif_rect = Rect::from_origin(
-            config.margin.x,
-            match (presentation, anchor.vertical) {
-                (Presentation::Stacked, VerticalAnchor::Top) => -m_y,
-                (Presentation::Stacked, VerticalAnchor::Bottom) => l_h + m_y,
-                (Presentation::Spread, VerticalAnchor::Top) => m_y - gap - h,
-                (Presentation::Spread, VerticalAnchor::Bottom) => l_h - m_y + gap,
-            },
-            size,
-        );
+        let notif_rect = layout.spawn(size);
         let notif_style = notification::Style {
             outer_opacity: 1.,
             inner_opacity: 1.,
@@ -167,8 +142,6 @@ impl Item {
 
                             base_x: *x,
                             base_y: *y,
-
-                            target: None,
                         };
                         *x += b_w + gap;
 
@@ -199,8 +172,7 @@ impl Item {
             hovering_button: None,
             buttons_visible: false,
 
-            notif_target: None,
-            target: None,
+            layout_target: None,
         })
     }
 
@@ -227,7 +199,17 @@ impl Item {
         }
     }
 
+    // The opacity of the buttons as per the current layout. Hover transitions
+    // replace the layout transition, so they need to carry it forward.
+    fn buttons_opacity(&self) -> f64 {
+        self.layout_target
+            .as_ref()
+            .map_or(0., |target| target.buttons.opacity)
+    }
+
     fn reset_hovering_button(&mut self) -> bool {
+        let opacity = self.buttons_opacity();
+
         if let Some(current) = self.hovering_button
             && let Some(buttons) = self.action_buttons.as_mut()
             && let Some(button) = buttons.get_mut(current)
@@ -237,7 +219,7 @@ impl Item {
                 Duration::from_millis(100),
                 button::PartialStyle {
                     light: Some(0.),
-                    opacity: Some(1.),
+                    opacity: Some(opacity),
                 },
                 None,
             ));
@@ -250,15 +232,34 @@ impl Item {
         }
     }
 
+    // The rect the card occupies in the current layout, if it is interactable.
+    fn notif_target(&self) -> Option<Rect> {
+        self.layout_target
+            .as_ref()
+            .filter(|target| target.style.outer_opacity > 0.)
+            .map(|target| target.rect)
+    }
+
+    // The rects the buttons occupy in the current layout, if they are interactable.
+    fn button_targets(&self) -> impl Iterator<Item = Rect> + '_ {
+        let card = self.notif_target().filter(|_| self.buttons_opacity() > 0.);
+
+        card.into_iter().flat_map(|card| {
+            self.action_buttons
+                .iter()
+                .flatten()
+                .map(move |button| button.rect_below(&card))
+        })
+    }
+
     fn card_hit(&self, at: (f64, f64)) -> bool {
-        self.notif_target.is_some_and(|target| target.contains(at))
+        self.notif_target()
+            .is_some_and(|target| target.contains(at))
     }
 
     // Returns the index of the button at (x, y), if any.
     fn button_at(&self, at: (f64, f64)) -> Option<usize> {
-        self.action_buttons
-            .as_ref()
-            .and_then(|buttons| buttons.iter().position(|button| button.hit(at)))
+        self.button_targets().position(|target| target.contains(at))
     }
 
     pub fn on_hover(&mut self, event: &PointerEvent) -> Vec<AppCommand> {
@@ -289,6 +290,7 @@ impl Item {
                 let _ = self.reset_hovering_button();
 
                 // Show hover tint on the current button.
+                let opacity = self.buttons_opacity();
                 if let Some(button) = self
                     .action_buttons
                     .as_mut()
@@ -298,7 +300,7 @@ impl Item {
                         Duration::from_millis(100),
                         button::PartialStyle {
                             light: Some(0.03),
-                            opacity: Some(1.),
+                            opacity: Some(opacity),
                         },
                         None,
                     ));
@@ -449,156 +451,20 @@ impl Item {
     }
 }
 
-impl HitTarget for Item {
-    fn target(&self) -> Option<Rect> {
-        self.target
-    }
-}
-
 // Methods for managing visual state.
 impl Item {
-    fn stacked_target_style(
-        &self,
-        anchor: &Anchor,
-        order: Order,
-    ) -> (Rect, notification::Style, button::Style, f64) {
-        let peek = self.config.stack.peek;
-        let inset = self.config.stack.inset;
-
-        let m_x = self.config.margin.x;
-        let m_y = self.config.margin.y;
-
-        let size = self.notif_r.measure();
-        let (w, h) = (size.w, size.h);
-        let l_h = anchor.layer_height;
-
-        let (n_rect, n_style, next) = match (anchor.vertical, order) {
-            // The first item should take the full size and be visible.
-            (VerticalAnchor::Top, Order::Visible(0, y)) => (
-                Rect::from_xywh(m_x, y, w, h),
-                notification::Style {
-                    outer_opacity: if self.dismissed { 0. } else { 1. },
-                    inner_opacity: if self.dismissed { 0. } else { 1. },
-                },
-                if self.dismissed { y } else { y + h },
-            ),
-
-            // The other items should be stacked below the first and then have its
-            // contents be hidden.
-            (VerticalAnchor::Top, Order::Visible(position, y)) => {
-                let level = position as f64;
-
-                // This card could be taller than the previous ones, so, we need to
-                // account for that.
-                let h = h.min(y - m_y - peek);
-
-                (
-                    Rect::from_xywh(m_x + level * inset, y + peek - h, w - 2. * level * inset, h),
-                    notification::Style {
-                        outer_opacity: if self.dismissed { 0. } else { 1. },
-                        inner_opacity: 0.,
-                    },
-                    if self.dismissed { y } else { y + peek },
-                )
-            }
-
-            // The items that are not visible on the stack should still be placed near
-            // the end of the stack.
-            (VerticalAnchor::Top, Order::Overflown(position, y)) => {
-                let level = position as f64;
-
-                // Pick the height such that while the item slide upwards, it is still
-                // never visible above the other Visible cards.
-                let h = h.min(y - m_y - peek);
-
-                (
-                    Rect::from_xywh(m_x + level * inset, y + peek - h, w - 2. * level * inset, h),
-                    notification::Style {
-                        inner_opacity: 0.,
-                        outer_opacity: 0.,
-                    },
-                    y,
-                )
-            }
-
-            // The first item on the stack should be completely visible.
-            // The returned next value is the top of the current card.
-            (VerticalAnchor::Bottom, Order::Visible(0, y)) => (
-                Rect::from_xywh(m_x, y - h, w, h),
-                notification::Style {
-                    outer_opacity: if self.dismissed { 0. } else { 1. },
-                    inner_opacity: if self.dismissed { 0. } else { 1. },
-                },
-                if self.dismissed { y } else { y - h },
-            ),
-
-            // The other items should be stacked below the first and then have its
-            // contents be hidden. But, the peeking of the item should be upwards.
-            (VerticalAnchor::Bottom, Order::Visible(position, y)) => {
-                let level = position as f64;
-
-                // This card could be taller than the previous ones, so, we need to
-                // account for that.
-                let h = h.min(l_h - y - m_y - peek);
-
-                (
-                    Rect::from_xywh(m_x + level * inset, y - peek, w - 2. * level * inset, h),
-                    notification::Style {
-                        inner_opacity: 0.,
-                        outer_opacity: if self.dismissed { 0. } else { 1. },
-                    },
-                    if self.dismissed { y } else { y - peek },
-                )
-            }
-
-            (VerticalAnchor::Bottom, Order::Overflown(position, y)) => {
-                let level = position as f64;
-
-                // Pick the height such that while the item slide downwards, it is still
-                // never visible above the other Visible cards.
-                let h = h.min(l_h - y - m_y - peek);
-
-                (
-                    Rect::from_xywh(m_x + level * inset, y - h, w - 2. * level * inset, h),
-                    notification::Style {
-                        inner_opacity: 0.,
-                        outer_opacity: 0.,
-                    },
-                    y,
-                )
-            }
-        };
-
-        let b_style = button::Style {
-            light: 0.,
-            opacity: 0.,
-        };
-
-        (n_rect, n_style, b_style, next)
+    /// The rect the item occupies in the current layout, if it is interactable.
+    pub fn target(&self) -> Option<Rect> {
+        self.notif_target().map(|card| {
+            self.button_targets()
+                .fold(card, |target, button| target.union(&button))
+        })
     }
 
-    fn spread_target_style(
-        &self,
-        anchor: &Anchor,
-        order: Order,
-    ) -> (Rect, notification::Style, button::Style, f64) {
-        let gap = self.config.spread.gap;
-
-        let m_x = self.config.margin.x;
-        let n_size = self.notif_r.measure();
-        let (n_w, n_h) = (n_size.w, n_size.h);
-
-        let visible_buttons = button::Style {
-            light: 0.,
-            opacity: 1.,
-        };
-        let hidden_buttons = button::Style {
-            light: 0.,
-            opacity: 0.,
-        };
-
+    /// Returns what the layout needs to know about the item.
+    pub fn layout_input(&self) -> layout::Input {
         // The full height of the buttons block, if it should be visible.
-        let b_h = if self.buttons_visible {
+        let buttons_h = if self.buttons_visible {
             self.action_buttons
                 .as_ref()
                 // Assuming that the buttons are drawn and laid out in order meaning
@@ -610,128 +476,50 @@ impl Item {
             0.
         };
 
-        let (n_rect, n_style, b_style, next) = match (anchor.vertical, order) {
-            (VerticalAnchor::Top, Order::Visible(_, y)) => (
-                Rect::from_xywh(
-                    m_x,
-                    if self.dismissed { y - n_h - gap } else { y },
-                    n_w,
-                    n_h,
-                ),
-                notification::Style {
-                    outer_opacity: if self.dismissed { 0. } else { 1. },
-                    inner_opacity: if self.dismissed { 0. } else { 1. },
-                },
-                if self.buttons_visible && !self.dismissed {
-                    visible_buttons
-                } else {
-                    hidden_buttons
-                },
-                if self.dismissed {
-                    y
-                } else {
-                    y + n_h + b_h + gap
-                },
-            ),
-
-            (VerticalAnchor::Top, Order::Overflown(_, y)) => (
-                Rect::from_xywh(m_x, y, n_w, n_h),
-                notification::Style {
-                    outer_opacity: 0.,
-                    inner_opacity: 0.,
-                },
-                hidden_buttons,
-                y,
-            ),
-
-            (VerticalAnchor::Bottom, Order::Visible(_, y)) => (
-                Rect::from_xywh(
-                    m_x,
-                    if self.dismissed {
-                        y + n_h + gap
-                    } else {
-                        y - n_h - b_h
-                    },
-                    n_w,
-                    n_h,
-                ),
-                notification::Style {
-                    outer_opacity: if self.dismissed { 0. } else { 1. },
-                    inner_opacity: if self.dismissed { 0. } else { 1. },
-                },
-                if self.buttons_visible && !self.dismissed {
-                    visible_buttons
-                } else {
-                    hidden_buttons
-                },
-                if self.dismissed {
-                    y
-                } else {
-                    y - n_h - b_h - gap
-                },
-            ),
-
-            (VerticalAnchor::Bottom, Order::Overflown(_, y)) => (
-                Rect::from_xywh(m_x, y - n_h, n_w, n_h),
-                notification::Style {
-                    outer_opacity: 0.,
-                    inner_opacity: 0.,
-                },
-                hidden_buttons,
-                y,
-            ),
-        };
-
-        (n_rect, n_style, b_style, next)
+        layout::Input {
+            size: self.notif_r.measure(),
+            buttons_h,
+            dismissed: self.dismissed,
+        }
     }
 
-    /// Updates the transitions, the style and the hit targets of the item as per the
-    /// visual state. Returns the y position that the next visual element can start at
-    /// if it does not want to overlap with the current item.
-    // TODO: Transtions should not be applied if one towards the same target is underway.
-    pub fn set_visual_state(
-        &mut self,
-        anchor: &Anchor,
-        layout: Presentation,
-        order: Order,
-        now: Option<Instant>,
-    ) -> f64 {
-        let (n_rect, n_style, b_style, next) = match layout {
-            Presentation::Stacked => self.stacked_target_style(anchor, order),
-            Presentation::Spread => self.spread_target_style(anchor, order),
-        };
-
+    pub fn set_anchor(&mut self, anchor: &Anchor) {
         self.notif_r.set_clip_anchor(clip_anchor(anchor));
+    }
 
-        self.notif_rect_transition =
-            Some(RectTransition::new(Duration::from_millis(200), n_rect, now));
-        self.notif_transition = Some(notification::StyleTransition::new(
-            Duration::from_millis(200),
-            n_style.clone().into(),
-            now,
-        ));
+    /// Moves the item towards a new layout target. Only the parts of the target
+    /// that changed are transitioned, so that the ones underway are not restarted.
+    pub fn set_target(&mut self, target: layout::Target, now: Instant) {
+        let now = Some(now);
+        let previous = self.layout_target.take();
 
-        self.notif_target = (n_style.outer_opacity > 0.).then_some(n_rect);
-        let buttons_interactive = self.notif_target.is_some() && b_style.opacity > 0.;
+        if previous.as_ref().is_none_or(|p| p.rect != target.rect) {
+            self.notif_rect_transition = Some(RectTransition::new(
+                Duration::from_millis(200),
+                target.rect,
+                now,
+            ));
+        }
 
-        let mut target = self.notif_target;
-        if let Some(buttons) = self.action_buttons.as_mut() {
-            for button in buttons.iter_mut() {
+        if previous.as_ref().is_none_or(|p| p.style != target.style) {
+            self.notif_transition = Some(notification::StyleTransition::new(
+                Duration::from_millis(200),
+                target.style.clone().into(),
+                now,
+            ));
+        }
+
+        if previous.is_none_or(|p| p.buttons != target.buttons) {
+            for button in self.action_buttons.iter_mut().flatten() {
                 button.transition = Some(button::StyleTransition::new(
                     Duration::from_millis(125),
-                    b_style.clone().into(),
+                    target.buttons.clone().into(),
                     now,
                 ));
-
-                button.target = buttons_interactive.then(|| button.rect_below(&n_rect));
-                if let (Some(item), Some(button)) = (target, button.target) {
-                    target = Some(item.union(&button));
-                }
             }
         }
-        self.target = target;
 
-        next
+        self.layout_target = Some(target);
     }
 }
 

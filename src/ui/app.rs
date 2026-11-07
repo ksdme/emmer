@@ -143,11 +143,10 @@ impl CompositorHandler for App {
         &mut self,
         _conn: &Connection,
         _qh: &wayland_client::QueueHandle<Self>,
-        surface: &wayland_client::protocol::wl_surface::WlSurface,
-        output: &wayland_client::protocol::wl_output::WlOutput,
+        _surface: &wayland_client::protocol::wl_surface::WlSurface,
+        _output: &wayland_client::protocol::wl_output::WlOutput,
     ) {
         log::debug!(target: "emmer::wl::compositor", "surface_enter");
-        dbg!(surface, output);
     }
 
     fn surface_leave(
@@ -245,14 +244,6 @@ impl PointerHandler for App {
 
                         let commands = self.stack.on_hover(e);
                         let _ = self.handle_commands(commands, None);
-                    }
-                    smithay_client_toolkit::seat::pointer::PointerEventKind::Axis {
-                        time: _,
-                        horizontal,
-                        vertical,
-                        source: _,
-                    } => {
-                        dbg!(horizontal, vertical);
                     }
                     _ => {}
                 }

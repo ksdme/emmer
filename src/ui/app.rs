@@ -70,6 +70,12 @@ pub struct App {
 
     stack: Stack,
     stack_hovering: bool,
+
+    // Frame loop state. Drawing only happens on frame callbacks, so a redraw
+    // request only marks the surface dirty and ensures a callback is in flight.
+    configured: bool,
+    dirty: bool,
+    frame_pending: bool,
 }
 
 // Required for compositor delegation.
@@ -136,7 +142,10 @@ impl CompositorHandler for App {
         _time: u32,
     ) {
         log::trace!(target: "emmer::wl::compositor", "frame");
-        let _ = logged!(self.draw().context("Could not draw frame"));
+        self.frame_pending = false;
+        if self.dirty {
+            let _ = logged!(self.draw().context("Could not draw frame"));
+        }
     }
 
     fn surface_enter(
@@ -174,8 +183,8 @@ impl LayerShellHandler for App {
     fn configure(
         &mut self,
         _conn: &Connection,
-        qh: &wayland_client::QueueHandle<Self>,
-        layer: &smithay_client_toolkit::shell::wlr_layer::LayerSurface,
+        _qh: &wayland_client::QueueHandle<Self>,
+        _layer: &smithay_client_toolkit::shell::wlr_layer::LayerSurface,
         configure: smithay_client_toolkit::shell::wlr_layer::LayerSurfaceConfigure,
         _serial: u32,
     ) {
@@ -186,10 +195,14 @@ impl LayerShellHandler for App {
         self.anchor = self.config.anchor(w as f64, h as f64);
         self.stack.set_anchor(self.anchor.clone());
 
-        // Buffers should be recreated on the frame callback.
-        let surface = layer.wl_surface();
-        surface.frame(qh, surface.clone());
-        surface.commit();
+        // The surface has to be redrawn at the new size. If a frame callback is
+        // already in flight, it picks this up, otherwise, draw right away since
+        // an unmapped surface would never receive a frame callback.
+        self.configured = true;
+        self.dirty = true;
+        if !self.frame_pending {
+            let _ = logged!(self.draw().context("Could not draw configured frame"));
+        }
     }
 }
 delegate_layer!(App);
@@ -477,6 +490,10 @@ impl App {
 
                 stack: Stack::new(config, anchor),
                 stack_hovering: false,
+
+                configured: false,
+                dirty: false,
+                frame_pending: false,
             },
             event_queue,
         ))
@@ -484,8 +501,39 @@ impl App {
 }
 
 impl App {
-    pub fn draw(&mut self) -> Result<()> {
+    /// Marks the surface dirty and ensures that a frame callback is in flight,
+    /// the actual draw happens on the callback.
+    fn request_redraw(&mut self) {
+        self.dirty = true;
+        if self.request_frame() {
+            self.layer_surface.wl_surface().commit();
+        }
+    }
+
+    /// Queues a frame callback if one isn't already in flight. The request only
+    /// takes effect on the next commit, which is left to the caller. Returns
+    /// whether a new callback was queued.
+    fn request_frame(&mut self) -> bool {
+        // If the surface has not been configured, it cannot receive a frame.
+        if !self.configured {
+            return false;
+        }
+
+        // If a frame request was already queued.
+        if self.frame_pending {
+            return false;
+        }
+
         let wl_surface = self.layer_surface.wl_surface();
+        wl_surface.frame(&self.queue_handle, wl_surface.clone());
+        self.frame_pending = true;
+        true
+    }
+
+    /// Draws the stack onto the surface. This should only be called from the
+    /// frame callback or the configure handler, use `request_redraw` otherwise.
+    fn draw(&mut self) -> Result<()> {
+        let wl_surface = self.layer_surface.wl_surface().clone();
 
         // Try acquiring a free buffer and if we can't find one,
         // queue another frame callback and skip this frame.
@@ -501,8 +549,7 @@ impl App {
         {
             None => {
                 log::trace!(target: "emmer::draw", "no free buffer, skipping frame");
-                wl_surface.frame(&self.queue_handle, wl_surface.clone());
-                wl_surface.commit();
+                self.request_redraw();
                 return Ok(());
             }
             Some(buff) => buff,
@@ -572,7 +619,7 @@ impl App {
 
         // Request an update to the frame.
         frame_buffer
-            .attach_to(wl_surface)
+            .attach_to(&wl_surface)
             .context("Could not attach buffer")?;
 
         wl_surface.damage_buffer(
@@ -581,8 +628,11 @@ impl App {
             self.anchor.layer_width as i32,
             self.anchor.layer_height as i32,
         );
-        if !settled {
-            wl_surface.frame(&self.queue_handle, wl_surface.clone());
+
+        // Keep the frame loop going while the transitions are unsettled.
+        self.dirty = !settled;
+        if self.dirty {
+            self.request_frame();
         }
 
         wl_surface.commit();
@@ -607,20 +657,9 @@ impl App {
         commands: Vec<AppCommand>,
         serial_seat_surface: Option<(u32, wl_seat::WlSeat, wl_surface::WlSurface)>,
     ) -> Result<()> {
-        let mut drawn = false;
-
         for c in commands {
             match c {
-                AppCommand::Redraw => {
-                    // We do not expect any work to be done while processing the command queue, so,
-                    // there is no point in drawing the same frame twice.
-                    if !drawn
-                        && let Ok(_) =
-                            logged!(self.draw().context("Could not process draw command"))
-                    {
-                        drawn = true;
-                    }
-                }
+                AppCommand::Redraw => self.request_redraw(),
                 AppCommand::SetCursor(cursor_icon) => {
                     if let Some(pointer) = self.pointer.as_ref()
                         && self.cursor_icon != Some(cursor_icon)

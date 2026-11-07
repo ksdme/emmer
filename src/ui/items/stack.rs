@@ -226,9 +226,6 @@ impl Stack {
             let mut commands = item.on_hover(event);
 
             if self.set_presentation(Presentation::Spread) {
-                // TODO: item.on_hover might have queued a redraw.
-                // But, this is not a huge problem because the double draw happens only
-                // when during the presentation transition.
                 commands.push(AppCommand::Redraw);
             }
 

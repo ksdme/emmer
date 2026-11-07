@@ -566,7 +566,7 @@ impl Item {
                     outer_opacity: if self.dismissed { 0. } else { 1. },
                     inner_opacity: if self.dismissed { 0. } else { 1. },
                 },
-                if self.dismissed { y } else { l_h - m_y - h },
+                if self.dismissed { y } else { y - h },
             ),
 
             // The other items should be stacked below the first and then have its

@@ -14,7 +14,11 @@ use zbus::{
 };
 
 use crate::{
-    dbus::notification::{self, ImageData, ImageSource, Urgency},
+    dbus::{
+        image,
+        notification::{self, ImageData, ImageSource, Urgency},
+    },
+    logged,
     ui::app::UIMessage,
 };
 
@@ -45,19 +49,38 @@ pub enum ServerMessage {
 pub struct NotificationService {
     pub id_counter: AtomicU32,
     pub tx: channel::Sender<UIMessage>,
+
+    // zbus dispatches method calls on its own executor, so, the tokio runtime
+    // has to be reached through a handle for scheduling blocking work.
+    runtime: tokio::runtime::Handle,
 }
 
 impl NotificationService {
-    pub fn new(tx: channel::Sender<UIMessage>) -> Self {
+    /// Must be called from within a tokio runtime.
+    pub fn new(runtime: tokio::runtime::Handle, tx: channel::Sender<UIMessage>) -> Self {
         Self {
             id_counter: AtomicU32::new(1),
             tx,
+            runtime,
         }
     }
+
+    // Decodes the image on the blocking pool so that it does not stall the UI thread.
+    async fn decode_image(&self, source: ImageSource) -> Option<image::Image> {
+        logged!(
+            self.runtime
+                .spawn_blocking(move || image::decode(source, 64., Some(64.)))
+                .await
+                .context("Could not join image decoder")
+                .and_then(|image| image.context("Could not decode image"))
+        )
+        .ok()
+    }
 }
+
 #[interface(name = "org.freedesktop.Notifications")]
 impl NotificationService {
-    fn notify(
+    async fn notify(
         &self,
         app_name: &str,
         _replaces_id: u32,
@@ -65,7 +88,7 @@ impl NotificationService {
         summary: &str,
         body: &str,
         actions: Vec<String>,
-        hints: std::collections::HashMap<String, zvariant::Value>,
+        hints: std::collections::HashMap<String, zvariant::Value<'_>>,
         expire_timeout: i32,
     ) -> u32 {
         let id = self
@@ -74,7 +97,7 @@ impl NotificationService {
 
         // https://specifications.freedesktop.org/notification/latest-single/#id-1.6.4
         // 1. "image-data"
-        let image = hints
+        let image_source = hints
             .get("image-data")
             .or_else(|| hints.get("image_data"))
             .and_then(|data| image_from_data(data).ok())
@@ -95,6 +118,11 @@ impl NotificationService {
                     .get("icon_data")
                     .and_then(|data| image_from_data(data).ok())
             });
+
+        let image = match image_source {
+            Some(source) => self.decode_image(source).await,
+            None => None,
+        };
 
         let urgency = match hints
             .get("urgency")

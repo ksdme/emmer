@@ -44,7 +44,14 @@ fn main() -> Result<()> {
             .enable_all()
             .build()
             .context("Could not start a thread")
-            .and_then(|rt| rt.block_on(run_server(&startup_tx, ui_tx, &mut server_rx)))
+            .and_then(|rt| {
+                rt.block_on(run_server(
+                    rt.handle().clone(),
+                    &startup_tx,
+                    ui_tx,
+                    &mut server_rx,
+                ))
+            })
             .context("Could not block on service");
 
         let _ = startup_tx.send(task);
@@ -143,11 +150,12 @@ fn run_ui(
 
 // Starts the dbus service loop.
 async fn run_server(
+    rt: tokio::runtime::Handle,
     startup_tx: &std::sync::mpsc::Sender<Result<()>>,
     ui_tx: channel::Sender<UIMessage>,
     server_rx: &mut tokio::sync::mpsc::UnboundedReceiver<ServerMessage>,
 ) -> Result<()> {
-    let service = NotificationService::new(ui_tx);
+    let service = NotificationService::new(rt, ui_tx);
 
     let conn = connection::Builder::session()?
         .name("org.freedesktop.Notifications")?

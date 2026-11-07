@@ -2,7 +2,7 @@ use anyhow::{Context, Result};
 
 use crate::{
     config::{ComputedConfig, Insets},
-    dbus::notification,
+    dbus,
     logged,
     ui::{
         anchors::VerticalAnchor,
@@ -31,14 +31,14 @@ impl Notification {
     pub fn new(
         config: &ComputedConfig,
         app: Option<&str>,
-        image: Option<notification::ImageSource>,
+        image: Option<dbus::image::Image>,
         title: Option<&str>,
         body: Option<&str>,
         created_at: Option<&str>,
     ) -> Result<Self> {
-        let image_r = if let Some(image_source) = image {
+        let image_r = if let Some(image) = image {
             logged!(
-                image::Image::from_source(image_source, 64., Some(64.))
+                image::Image::new(image)
                     .context("Could not initialize image")
             )
             .ok()

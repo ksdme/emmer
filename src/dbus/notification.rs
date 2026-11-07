@@ -2,6 +2,8 @@ use std::{path::PathBuf, time::Instant};
 
 use debug_ignore::DebugIgnore;
 
+use crate::dbus::image::Image;
+
 /// Represents an action on the notification.
 #[derive(Debug, Clone)]
 pub struct Action {
@@ -43,7 +45,6 @@ pub enum ImageSource {
     File(PathBuf),
     Data(ImageData),
 }
-
 #[derive(Debug)]
 pub enum Urgency {
     Low,
@@ -67,7 +68,7 @@ pub struct Notification {
     pub body: Option<String>,
 
     /// The image that should be attached to the notification.
-    pub image: Option<ImageSource>,
+    pub image: Option<Image>,
 
     /// The urgency level associated of the notification.
     pub urgency: Urgency,

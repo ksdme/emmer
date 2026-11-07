@@ -1,7 +1,7 @@
 use anyhow::{Context, Result};
 
 use crate::{
-    dbus::notification,
+    dbus,
     ui::renderables::{Rect, Renderable, Size, rounded_sub_path},
 };
 
@@ -12,53 +12,11 @@ pub struct Image {
 }
 
 impl Image {
-    /// Builds the instance of the renderable from the dbus image source.
-    pub fn from_source(
-        source: notification::ImageSource,
-        max_w: f64,
-        max_h: Option<f64>,
-    ) -> Result<Self> {
-        match source {
-            notification::ImageSource::File(path_buf) => {
-                let image = image::ImageReader::open(&path_buf)
-                    .context("Could not read image file")?
-                    .with_guessed_format()
-                    .context("Could not guess format of the image")?
-                    .decode()
-                    .context("Could not decode image")?;
-
-                Ok(Self {
-                    surface: scaled_image_surface(image, max_w, max_h)
-                        .context("Could not scale, create surface from image")?,
-                })
-            }
-            notification::ImageSource::Data(image) => {
-                let image = if image.has_alpha {
-                    image::DynamicImage::ImageRgba8(
-                        image::RgbaImage::from_raw(
-                            image.width as u32,
-                            image.height as u32,
-                            image.data.0,
-                        )
-                        .context("Could not create image")?,
-                    )
-                } else {
-                    image::DynamicImage::ImageRgb8(
-                        image::RgbImage::from_raw(
-                            image.width as u32,
-                            image.height as u32,
-                            image.data.0,
-                        )
-                        .context("Could not create image")?,
-                    )
-                };
-
-                Ok(Self {
-                    surface: scaled_image_surface(image, max_w, max_h)
-                        .context("Could not scale, create surface from image")?,
-                })
-            }
-        }
+    /// Builds the instance of the renderable from the decoded dbus image.
+    pub fn new(image: dbus::image::Image) -> Result<Self> {
+        Ok(Self {
+            surface: rounded_surface(image).context("Could not create surface from image")?,
+        })
     }
 }
 
@@ -89,71 +47,14 @@ pub struct Style {
     pub opacity: f64,
 }
 
-// Scales an image to w and returns a cairo surface from it.
-fn scaled_image_surface(
-    image: image::DynamicImage,
-    max_w: f64,
-    max_h: Option<f64>,
-) -> Result<cairo::ImageSurface> {
-    let cur_w = image.width() as f64;
-    let cur_h = image.height() as f64;
+// Creates a cairo surface from the image with its corners rounded.
+fn rounded_surface(image: dbus::image::Image) -> Result<cairo::ImageSurface> {
+    let scaled_w = image.width;
+    let scaled_h = image.height;
 
-    let mut factor = max_w / cur_w;
-    if let Some(max_h) = max_h {
-        factor = factor.min(max_h / cur_h);
-    }
-
-    let scaled_image = image.resize(
-        (cur_w * factor).round() as u32,
-        (cur_h * factor).round() as u32,
-        image::imageops::CatmullRom,
-    );
-
-    // The dimensions of the scaled image might not exactly match the requested
-    // dimensions. While this might not affect drawing, we need to use correct size
-    // for buffers.
-    let scaled_w = scaled_image.width();
-    let scaled_h = scaled_image.height();
-
-    // Cairo always uses 32 bits to represent a pixel on the surface. So, it is simpler
-    // to just treat all images as having alpha.
-    let mut pixels = scaled_image.into_rgba8().into_raw();
-
-    // CAIRO_FORMAT_ARGB32: This format uses 8 bits each for Alpha, Red, Green, and Blue.
-    // It uses pre-multiplied alpha, meaning color channels are already multiplied by the
-    // alpha value (e.g., 50% transparent red is 0x80800000, not 0x80ff0000)
-    for px in pixels.chunks_exact_mut(4) {
-        let r = px[0] as u16;
-        let g = px[1] as u16;
-        let b = px[2] as u16;
-        let a = px[3] as u16;
-
-        // Also round up.
-        let r = ((r * a + 127) / 255) as u8;
-        let g = ((g * a + 127) / 255) as u8;
-        let b = ((b * a + 127) / 255) as u8;
-        let a = a as u8;
-
-        #[cfg(target_endian = "little")]
-        {
-            px[0] = b;
-            px[1] = g;
-            px[2] = r;
-            px[3] = a;
-        }
-
-        #[cfg(target_endian = "big")]
-        {
-            px[0] = a;
-            px[1] = r;
-            px[2] = g;
-            px[3] = b;
-        }
-    }
-
-    // Transfer the image::Image to a cairo canvas.
+    // Transfer the pixels to a cairo canvas.
     let source = cairo::ImageSurface::create_for_data(
-        pixels,
+        image.pixels.0,
         cairo::Format::ARgb32,
         scaled_w as i32,
         scaled_h as i32,

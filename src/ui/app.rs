@@ -502,14 +502,14 @@ impl App {
                 wl_shm::Format::Argb8888,
             )
             .context("Could not get a buffer")?
-            .context("Could not find a buffer")
         {
-            Err(err) => {
+            None => {
+                log::trace!(target: "emmer::draw", "no free buffer, skipping frame");
                 wl_surface.frame(&self.queue_handle, wl_surface.clone());
                 wl_surface.commit();
-                return Err(err);
+                return Ok(());
             }
-            Ok(buff) => buff,
+            Some(buff) => buff,
         };
 
         // The buffer might have data left from a previous render. Clearing it via

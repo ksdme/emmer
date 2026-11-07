@@ -587,11 +587,15 @@ impl App {
 
             let (bounds, settled) = self.stack.render(&cx).context("Could not render stack")?;
             let input_rect = bounds.map(|bounds| {
+                let x1 = (bounds.x1 - 8.).max(0.);
+                let y1 = (bounds.y1 - 8.).max(0.);
+                let x2 = (bounds.x2 + 8.).min(self.anchor.layer_width);
+                let y2 = (bounds.y2 + 8.).min(self.anchor.layer_height);
                 (
-                    bounds.x1 as i32 - 8,
-                    bounds.y1 as i32 - 8,
-                    bounds.w() as i32 + 16,
-                    self.anchor.layer_height.min(bounds.h() + 16.) as i32,
+                    x1 as i32,
+                    y1 as i32,
+                    (x2 - x1).max(0.) as i32,
+                    (y2 - y1).max(0.) as i32,
                 )
             });
 

@@ -17,6 +17,7 @@ Pending
 - Center the image
 - Multiple stacks
 - Rule based themeing
+- Pause auto dismiss clock when spread
 
 Tests
 - Clicking on notification should dismiss it and also activate the app

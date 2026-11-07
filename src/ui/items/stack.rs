@@ -12,7 +12,7 @@ use crate::{
     dbus::{notification::Notification, service::CloseReason},
     ui::{
         anchors::{Anchor, VerticalAnchor},
-        items::Item,
+        items::{HitTarget, Item},
         renderables::Rect,
     },
 };
@@ -75,7 +75,7 @@ impl Stack {
     /// Finds an item that is at (x, y) visual position on this stack.
     pub fn find_at_mut(&mut self, at: (f64, f64)) -> Option<&mut Item> {
         for el in self.items.values_mut().rev() {
-            if let Some(hitbox) = el.bounds() {
+            if let Some(hitbox) = el.target() {
                 // Given that values are sorted, we can abort as soon as we
                 // find one item that is definitely out of the pointer box.
                 if match self.anchor.vertical {
@@ -307,21 +307,8 @@ impl Stack {
             let item_settled = item.tick(&now);
 
             // Render and update the scene bounds.
-            if let Some(bounds) = item
-                .render(
-                    cx,
-                    match self.anchor.vertical {
-                        VerticalAnchor::Top => VerticalAnchor::Bottom,
-                        VerticalAnchor::Bottom => VerticalAnchor::Top,
-                    },
-                )
-                .context("Could not render item: {id}")?
-            {
-                let fb = full_bounds.get_or_insert(bounds);
-                fb.x1 = fb.x1.min(bounds.x1);
-                fb.y1 = fb.y1.min(bounds.y1);
-                fb.x2 = fb.x2.max(bounds.x2);
-                fb.y2 = fb.y2.max(bounds.y2);
+            if let Some(bounds) = item.render(cx).context("Could not render item: {id}")? {
+                full_bounds = Some(full_bounds.map_or(bounds, |fb| fb.union(&bounds)));
             }
 
             // If the item was marked as dismissed, and the transition

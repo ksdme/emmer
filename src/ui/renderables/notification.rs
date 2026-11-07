@@ -6,27 +6,28 @@ use crate::{
     logged,
     ui::{
         anchors::VerticalAnchor,
-        renderables::{Color, Rect, card, image, text},
+        renderables::{Color, Rect, Renderable, Size, card, image, text},
     },
 };
 
 /// Renders a notification card.
 #[derive(Debug)]
-pub struct Renderable {
+pub struct Notification {
     width: f64,
     padding: Insets,
 
-    card_r: card::Renderable,
+    // The edge the contents stick to when they are clipped.
+    clip_anchor: VerticalAnchor,
 
-    image_r: Option<image::Renderable>,
-    title_r: Option<text::Renderable>,
-    body_r: Option<text::Renderable>,
+    image_r: Option<image::Image>,
+    title_r: Option<text::Text>,
+    body_r: Option<text::Text>,
 
-    app_r: Option<text::Renderable>,
-    created_at_r: Option<text::Renderable>,
+    app_r: Option<text::Text>,
+    created_at_r: Option<text::Text>,
 }
 
-impl Renderable {
+impl Notification {
     pub fn new(
         config: &ComputedConfig,
         app: Option<&str>,
@@ -37,7 +38,7 @@ impl Renderable {
     ) -> Result<Self> {
         let image_r = if let Some(image_source) = image {
             logged!(
-                image::Renderable::from_source(image_source, 64., Some(64.))
+                image::Image::from_source(image_source, 64., Some(64.))
                     .context("Could not initialize image")
             )
             .ok()
@@ -47,21 +48,17 @@ impl Renderable {
 
         let inner_w = (config.width
             - (2. + if image_r.is_some() { 1. } else { 0. }) * config.padding.x
-            - image_r
-                .as_ref()
-                .map(|r| r.content_size())
-                .map(|(w, _)| w)
-                .unwrap_or(0.)) as i32;
+            - image_r.as_ref().map(|r| r.measure().w).unwrap_or(0.)) as i32;
 
         Ok(Self {
             width: config.width,
             padding: config.padding.clone(),
 
-            card_r: card::Renderable::new(),
+            clip_anchor: VerticalAnchor::Top,
 
             image_r,
             title_r: title.map(|title| {
-                text::Renderable::new(
+                text::Text::new(
                     &config.theme.font_map,
                     &config.theme.title_font_description,
                     Some(inner_w),
@@ -70,7 +67,7 @@ impl Renderable {
                 )
             }),
             body_r: body.map(|body| {
-                text::Renderable::new(
+                text::Text::new(
                     &config.theme.font_map,
                     &config.theme.body_font_description,
                     Some(inner_w),
@@ -80,7 +77,7 @@ impl Renderable {
             }),
 
             app_r: app.map(|app| {
-                text::Renderable::new(
+                text::Text::new(
                     &config.theme.font_map,
                     &config.theme.body_font_description,
                     None,
@@ -89,7 +86,7 @@ impl Renderable {
                 )
             }),
             created_at_r: created_at.map(|created| {
-                text::Renderable::new(
+                text::Text::new(
                     &config.theme.font_map,
                     &config.theme.body_font_description,
                     None,
@@ -100,46 +97,27 @@ impl Renderable {
         })
     }
 
+    // Sets the edge the contents stick to when the card is shorter than them.
+    pub fn set_clip_anchor(&mut self, clip_anchor: VerticalAnchor) {
+        self.clip_anchor = clip_anchor;
+    }
+
     // Height of the core contents.
     fn content_height(&self) -> f64 {
-        let title_h = self
-            .title_r
-            .as_ref()
-            .map(|title| title.content_size())
-            .map(|(_, h)| h)
-            .unwrap_or(0.);
-
-        let body_h = self
-            .body_r
-            .as_ref()
-            .map(|body| body.content_size())
-            .map(|(_, h)| h)
-            .unwrap_or(0.);
-
-        let image_h = self
-            .image_r
-            .as_ref()
-            .map(|image| image.content_size())
-            .map(|(_, h)| h)
-            .unwrap_or(0.);
+        let title_h = self.title_r.as_ref().map(|r| r.measure().h).unwrap_or(0.);
+        let body_h = self.body_r.as_ref().map(|r| r.measure().h).unwrap_or(0.);
+        let image_h = self.image_r.as_ref().map(|r| r.measure().h).unwrap_or(0.);
 
         image_h.max(title_h + body_h + if title_h > 0. && body_h > 0. { 8. } else { 0. })
     }
 
     // Height contributed by the non core contents.
     fn meta_height(&self) -> f64 {
-        let name_h = self
-            .app_r
-            .as_ref()
-            .map(|r| r.content_size())
-            .map(|(_, h)| h)
-            .unwrap_or(0.);
-
+        let name_h = self.app_r.as_ref().map(|r| r.measure().h).unwrap_or(0.);
         let created_h = self
             .created_at_r
             .as_ref()
-            .map(|r| r.content_size())
-            .map(|(_, h)| h)
+            .map(|r| r.measure().h)
             .unwrap_or(0.);
 
         name_h.max(created_h)
@@ -151,32 +129,31 @@ impl Renderable {
         let c_h = self.content_height();
         c_h + m_h + if c_h > 0. && m_h > 0. { 6. } else { 0. }
     }
+}
 
-    pub fn content_size(&self) -> (f64, f64) {
-        (self.width, self.inner_height() + 2. * self.padding.y)
+impl Renderable for Notification {
+    type Style = Style;
+
+    fn measure(&self) -> Size {
+        Size {
+            w: self.width,
+            h: self.inner_height() + 2. * self.padding.y,
+        }
     }
 
-    pub fn render(
-        &self,
-        cr: &cairo::Context,
-        style: &Style,
-        clip_anchor: VerticalAnchor,
-    ) -> Result<Rect> {
+    fn paint(&self, cr: &cairo::Context, rect: Rect, style: &Style) -> Result<()> {
         // The base.
-        let rect = self
-            .card_r
-            .render(
-                cr,
-                style.x,
-                style.y,
-                style.w,
-                style.h,
-                Color::from_rgba_u8(52, 52, 52, style.outer_opacity),
-                1.5,
-                Some(Color::from_rgba_u8(102, 102, 102, style.outer_opacity)),
-                8.,
-            )
-            .context("Could not draw block")?;
+        card::paint(
+            cr,
+            rect,
+            &card::Style {
+                bg: Color::from_rgba_u8(52, 52, 52, style.outer_opacity),
+                border_width: 1.5,
+                border_color: Color::from_rgba_u8(102, 102, 102, style.outer_opacity),
+                border_radius: 8.,
+            },
+        )
+        .context("Could not draw block")?;
 
         if style.inner_opacity > 0. {
             cr.save()
@@ -196,7 +173,7 @@ impl Renderable {
                 // do it using an offset.
                 rect.y1
                     + self.padding.y
-                    + match clip_anchor {
+                    + match self.clip_anchor {
                         VerticalAnchor::Top => 0.,
                         VerticalAnchor::Bottom => -(content_h - avail_h),
                     }
@@ -206,12 +183,19 @@ impl Renderable {
 
             // The image/icon.
             let content_x = if let Some(image_r) = self.image_r.as_ref() {
+                let size = image_r.measure();
                 match logged!(
                     image_r
-                        .render(cr, content_x, content_y, style.inner_opacity)
+                        .paint(
+                            cr,
+                            Rect::from_origin(content_x, content_y, size),
+                            &image::Style {
+                                opacity: style.inner_opacity,
+                            },
+                        )
                         .context("Could not draw image")
                 ) {
-                    Ok(bounds) => content_x + bounds.w() + 8.,
+                    Ok(()) => content_x + size.w + 8.,
                     Err(_) => content_x,
                 }
             } else {
@@ -219,52 +203,64 @@ impl Renderable {
             };
 
             cr.new_path();
-            let fg = Color::from_rgba_u8(255, 255, 255, style.inner_opacity);
+            let fg = text::Style {
+                color: Color::from_rgba_u8(255, 255, 255, style.inner_opacity),
+            };
+            let meta = text::Style {
+                color: fg.color.with_alpha(style.inner_opacity * 0.35),
+            };
 
             // The title.
             let content_y = match &self.title_r {
                 Some(title) => {
-                    let (_, h) = title.render(cr, content_x, content_y, fg);
-                    content_y + h + 8.
+                    let size = title.measure();
+                    title.paint(cr, Rect::from_origin(content_x, content_y, size), &fg)?;
+                    content_y + size.h + 8.
                 }
                 None => content_y,
             };
 
             // The body.
-            let _content_y = match &self.body_r {
-                Some(body) => {
-                    let (_, h) = body.render(cr, content_x, content_y, fg);
-                    content_y + h + 4.
-                }
-                None => content_y,
-            };
+            if let Some(body) = &self.body_r {
+                body.paint(
+                    cr,
+                    Rect::from_origin(content_x, content_y, body.measure()),
+                    &fg,
+                )?;
+            }
 
             // The footer.
             if let Some(app_r) = &self.app_r {
-                let (_, h) = app_r.content_size();
-                app_r.render(
+                let size = app_r.measure();
+                app_r.paint(
                     cr,
-                    rect.x1 + self.padding.x,
-                    rect.y2 - self.padding.y - h,
-                    fg.with_alpha(style.inner_opacity * 0.35),
-                );
+                    Rect::from_origin(
+                        rect.x1 + self.padding.x,
+                        rect.y2 - self.padding.y - size.h,
+                        size,
+                    ),
+                    &meta,
+                )?;
             }
 
             if let Some(created_at_r) = &self.created_at_r {
-                let (w, h) = created_at_r.content_size();
-                created_at_r.render(
+                let size = created_at_r.measure();
+                created_at_r.paint(
                     cr,
-                    rect.x2 - self.padding.x - w,
-                    rect.y2 - self.padding.y - h,
-                    fg.with_alpha(style.inner_opacity * 0.35),
-                );
+                    Rect::from_origin(
+                        rect.x2 - self.padding.x - size.w,
+                        rect.y2 - self.padding.y - size.h,
+                        size,
+                    ),
+                    &meta,
+                )?;
             }
 
             cr.restore()
                 .context("Could not restore cairo state after clip")?;
         }
 
-        Ok(rect)
+        Ok(())
     }
 }
 
@@ -272,12 +268,6 @@ transitionable!(
     // Represents the box style and the contents style of the notification
     // renderable.
     Style {
-        w: f64,
-        h: f64,
-
-        x: f64,
-        y: f64,
-
         inner_opacity: f64,
         outer_opacity: f64,
     }

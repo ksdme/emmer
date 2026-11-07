@@ -1,14 +1,16 @@
-use crate::ui::renderables::Color;
+use anyhow::Result;
+
+use crate::ui::renderables::{Color, Rect, Renderable, Size};
 
 /// Renders a piece of text using pango with caching.
 #[derive(Debug)]
-pub struct Renderable {
+pub struct Text {
     layout: pango::Layout,
     w: f64,
     h: f64,
 }
 
-impl Renderable {
+impl Text {
     /// Returns a new Text renderable that caches the content shape and layout
     /// while constraing and wrapping it.
     pub fn new(
@@ -47,16 +49,30 @@ impl Renderable {
             h: h as f64,
         }
     }
+}
 
-    pub fn content_size(&self) -> (f64, f64) {
-        (self.w, self.h)
+impl Renderable for Text {
+    type Style = Style;
+
+    fn measure(&self) -> Size {
+        Size {
+            w: self.w,
+            h: self.h,
+        }
     }
 
-    pub fn render(&self, cr: &cairo::Context, x: f64, y: f64, fg: Color) -> (f64, f64) {
+    fn paint(&self, cr: &cairo::Context, rect: Rect, style: &Style) -> Result<()> {
+        let fg = style.color;
         cr.set_source_rgba(fg.r, fg.g, fg.b, fg.a);
-        cr.move_to(x, y);
+        cr.move_to(rect.x1, rect.y1);
 
         pangocairo::functions::show_layout(cr, &self.layout);
-        self.content_size()
+        Ok(())
     }
+}
+
+/// The style of a text renderable.
+#[derive(Debug, Default, Clone, Copy)]
+pub struct Style {
+    pub color: Color,
 }

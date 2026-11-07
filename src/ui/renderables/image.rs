@@ -2,16 +2,16 @@ use anyhow::{Context, Result};
 
 use crate::{
     dbus::notification,
-    ui::renderables::{Rect, rounded_sub_path},
+    ui::renderables::{Rect, Renderable, Size, rounded_sub_path},
 };
 
 /// Renders an image to the cairo surface with a specific width.
 #[derive(Debug)]
-pub struct Renderable {
+pub struct Image {
     surface: cairo::ImageSurface,
 }
 
-impl Renderable {
+impl Image {
     /// Builds the instance of the renderable from the dbus image source.
     pub fn from_source(
         source: notification::ImageSource,
@@ -60,21 +60,33 @@ impl Renderable {
             }
         }
     }
+}
 
-    pub fn content_size(&self) -> (f64, f64) {
-        (self.surface.width() as f64, self.surface.height() as f64)
+impl Renderable for Image {
+    type Style = Style;
+
+    fn measure(&self) -> Size {
+        Size {
+            w: self.surface.width() as f64,
+            h: self.surface.height() as f64,
+        }
     }
 
-    pub fn render(&self, cr: &cairo::Context, x: f64, y: f64, opacity: f64) -> Result<Rect> {
-        cr.set_source_surface(&self.surface, x, y)
+    fn paint(&self, cr: &cairo::Context, rect: Rect, style: &Style) -> Result<()> {
+        cr.set_source_surface(&self.surface, rect.x1, rect.y1)
             .context("Could not set image")?;
 
-        cr.paint_with_alpha(opacity)
+        cr.paint_with_alpha(style.opacity)
             .context("Could not paint image")?;
 
-        let (w, h) = self.content_size();
-        Ok(Rect::from_xywh(x, y, w, h))
+        Ok(())
     }
+}
+
+/// The style of an image renderable.
+#[derive(Debug, Default, Clone, Copy)]
+pub struct Style {
+    pub opacity: f64,
 }
 
 // Scales an image to w and returns a cairo surface from it.

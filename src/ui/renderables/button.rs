@@ -2,23 +2,21 @@ use anyhow::{Context, Result};
 
 use crate::{
     config::{ComputedConfig, Insets},
-    ui::renderables::{Color, Rect, card, text},
+    ui::renderables::{Color, Rect, Renderable, Size, card, text},
 };
 
 /// Represents a generic button.
 #[derive(Debug)]
-pub struct Renderable {
+pub struct Button {
     padding: Insets,
 
-    card_r: card::Renderable,
-    label_r: text::Renderable,
+    label_r: text::Text,
 }
 
-impl Renderable {
+impl Button {
     pub fn new(config: &ComputedConfig, label: &str, padding: Insets, max_w: Option<i32>) -> Self {
         Self {
-            card_r: card::Renderable::new(),
-            label_r: text::Renderable::new(
+            label_r: text::Text::new(
                 &config.theme.font_map,
                 &config.theme.body_font_description,
                 max_w.map(|w| w - (2. * padding.x) as i32),
@@ -29,38 +27,45 @@ impl Renderable {
             padding,
         }
     }
+}
 
-    pub fn content_size(&self) -> (f64, f64) {
-        let (label_w, label_h) = self.label_r.content_size();
-        (2. * self.padding.x + label_w, 2. * self.padding.y + label_h)
+impl Renderable for Button {
+    type Style = Style;
+
+    fn measure(&self) -> Size {
+        let label = self.label_r.measure();
+        Size {
+            w: 2. * self.padding.x + label.w,
+            h: 2. * self.padding.y + label.h,
+        }
     }
 
-    pub fn render(&self, cr: &cairo::Context, style: &Style, x: f64, y: f64) -> Result<Rect> {
-        let (w, h) = self.content_size();
-
-        let bounds = self
-            .card_r
-            .render(
-                cr,
-                x,
-                y,
-                w,
-                h,
-                Color::from_rgba_u8(52, 52, 52, style.opacity).with_lightness(style.light),
-                1.,
-                Some(Color::from_rgba_u8(102, 102, 102, style.opacity)),
-                4.,
-            )
-            .context("Could not draw background")?;
-
-        let _ = self.label_r.render(
+    fn paint(&self, cr: &cairo::Context, rect: Rect, style: &Style) -> Result<()> {
+        card::paint(
             cr,
-            x + self.padding.x,
-            y + self.padding.y,
-            Color::from_rgba_u8(255, 255, 255, style.opacity),
-        );
+            rect,
+            &card::Style {
+                bg: Color::from_rgba_u8(52, 52, 52, style.opacity).with_lightness(style.light),
+                border_width: 1.,
+                border_color: Color::from_rgba_u8(102, 102, 102, style.opacity),
+                border_radius: 4.,
+            },
+        )
+        .context("Could not draw background")?;
 
-        Ok(bounds)
+        self.label_r
+            .paint(
+                cr,
+                Rect::from_origin(
+                    rect.x1 + self.padding.x,
+                    rect.y1 + self.padding.y,
+                    self.label_r.measure(),
+                ),
+                &text::Style {
+                    color: Color::from_rgba_u8(255, 255, 255, style.opacity),
+                },
+            )
+            .context("Could not draw label")
     }
 }
 

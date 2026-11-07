@@ -42,8 +42,15 @@ impl Color {
     }
 }
 
+/// Represents the intrinsic size of a renderable.
+#[derive(Debug, Default, Clone, Copy, PartialEq)]
+pub struct Size {
+    pub w: f64,
+    pub h: f64,
+}
+
 /// Represents a rect used to represent hitboxes/bounds.
-#[derive(Debug, Default, Clone, Copy)]
+#[derive(Debug, Default, Clone, Copy, PartialEq)]
 pub struct Rect {
     pub x1: f64,
     pub y1: f64,
@@ -62,6 +69,10 @@ impl Rect {
         }
     }
 
+    pub fn from_origin(x: f64, y: f64, size: Size) -> Self {
+        Self::from_xywh(x, y, size.w, size.h)
+    }
+
     pub fn w(&self) -> f64 {
         self.x2 - self.x1
     }
@@ -70,12 +81,37 @@ impl Rect {
         self.y2 - self.y1
     }
 
+    /// Returns the smallest rect that contains both the rects.
+    pub fn union(&self, other: &Rect) -> Rect {
+        Rect {
+            x1: self.x1.min(other.x1),
+            y1: self.y1.min(other.y1),
+            x2: self.x2.max(other.x2),
+            y2: self.y2.max(other.y2),
+        }
+    }
+
     /// Returns a boolean indicating if the (x, y) is on or within the rect.
     #[inline]
     pub fn contains(&self, at: (f64, f64)) -> bool {
         at.0 >= self.x1 && at.0 <= self.x2 && at.1 >= self.y1 && at.1 <= self.y2
     }
 }
+
+impl Transitionable for Rect {
+    type Partial = Rect;
+
+    fn interpolate(&self, to: &Rect, progress: f64) -> Rect {
+        Rect {
+            x1: self.x1.interp(Some(to.x1), progress),
+            y1: self.y1.interp(Some(to.y1), progress),
+            x2: self.x2.interp(Some(to.x2), progress),
+            y2: self.y2.interp(Some(to.y2), progress),
+        }
+    }
+}
+
+pub type RectTransition = Transition<Rect>;
 
 // A trait that allows us to provide implementations for how to interpolate values
 // of each type from a value a to optional b.
@@ -211,6 +247,19 @@ where
         // transition is complete.
         (from.interpolate(&self.to, progress), progress >= 1.)
     }
+}
+
+/// The contract shared by all the renderables. The layout measures a renderable,
+/// decides the rect it occupies and then asks it to paint itself into that rect.
+pub trait Renderable {
+    /// The paint properties of the renderable.
+    type Style;
+
+    /// Returns the intrinsic size of the renderable.
+    fn measure(&self) -> Size;
+
+    /// Paints the renderable into the rect.
+    fn paint(&self, cr: &cairo::Context, rect: Rect, style: &Self::Style) -> anyhow::Result<()>;
 }
 
 /// A util for setting up a cairo rounded rect path. You could use cr.arc but

@@ -14,8 +14,13 @@ use crate::{
     },
     ui::{
         anchors::{Anchor, VerticalAnchor},
-        items::stack::{AppCommand, Order, Presentation},
-        renderables::{Rect, button, notification},
+        items::{
+            HitTarget,
+            stack::{AppCommand, Order, Presentation},
+        },
+        renderables::{
+            Rect, RectTransition, Renderable, Transition, Transitionable, button, notification,
+        },
     },
 };
 
@@ -24,7 +29,7 @@ use crate::{
 pub struct ActionButton {
     action: Action,
 
-    r: button::Renderable,
+    r: button::Button,
     style: button::Style,
     transition: Option<button::StyleTransition>,
 
@@ -34,7 +39,24 @@ pub struct ActionButton {
     base_x: f64,
     base_y: f64,
 
-    bounds: Option<Rect>,
+    // The rect the button occupies in the current layout, if it is interactable.
+    target: Option<Rect>,
+}
+
+impl ActionButton {
+    fn rect_below(&self, card: &Rect) -> Rect {
+        Rect::from_origin(
+            card.x1 + self.base_x,
+            card.y2 + self.base_y,
+            self.r.measure(),
+        )
+    }
+}
+
+impl HitTarget for ActionButton {
+    fn target(&self) -> Option<Rect> {
+        self.target
+    }
 }
 
 /// Represents a logical notification item.
@@ -50,17 +72,21 @@ pub struct Item {
 
     dismissed: bool,
 
-    notif_r: notification::Renderable,
+    notif_r: notification::Notification,
+    notif_rect: Rect,
+    notif_rect_transition: Option<RectTransition>,
     notif_style: notification::Style,
     notif_transition: Option<notification::StyleTransition>,
-    notif_bounds: Option<Rect>,
 
     implicit_action: Option<Action>,
     action_buttons: Option<Vec<ActionButton>>,
     hovering_button: Option<usize>,
     buttons_visible: bool,
 
-    bounds: Option<Rect>,
+    // The rects the card and the whole item occupy in the current layout, if
+    // they are interactable.
+    notif_target: Option<Rect>,
+    target: Option<Rect>,
 }
 
 impl Item {
@@ -70,7 +96,7 @@ impl Item {
         anchor: &Anchor,
         presentation: Presentation,
     ) -> Result<Self> {
-        let notif_r = notification::Renderable::new(
+        let mut notif_r = notification::Notification::new(
             &config,
             Some(&notif.app_name),
             notif.image,
@@ -79,24 +105,26 @@ impl Item {
             Some(notif.created_at.format("%-I:%M %P").to_string().as_str()),
         )
         .context("Could not initialize")?;
-        let (w, h) = notif_r.content_size();
+        notif_r.set_clip_anchor(clip_anchor(anchor));
+
+        let size = notif_r.measure();
+        let (w, h) = (size.w, size.h);
 
         let l_h = anchor.layer_height;
         let m_y = config.margin.y;
         let gap = config.spread.gap;
 
-        let notif_style = notification::Style {
-            x: config.margin.x,
-            y: match (presentation, anchor.vertical) {
+        let notif_rect = Rect::from_origin(
+            config.margin.x,
+            match (presentation, anchor.vertical) {
                 (Presentation::Stacked, VerticalAnchor::Top) => -m_y,
                 (Presentation::Stacked, VerticalAnchor::Bottom) => l_h + m_y,
                 (Presentation::Spread, VerticalAnchor::Top) => m_y - gap - h,
                 (Presentation::Spread, VerticalAnchor::Bottom) => l_h - m_y + gap,
             },
-
-            w,
-            h,
-
+            size,
+        );
+        let notif_style = notification::Style {
             outer_opacity: 1.,
             inner_opacity: 1.,
         };
@@ -116,14 +144,15 @@ impl Item {
                 let buttons = actions
                     .iter()
                     .scan((0., 8.), |(x, y), action| {
-                        let r = button::Renderable::new(
+                        let r = button::Button::new(
                             &config,
                             action.label(),
                             Insets { x: 16., y: 8. },
                             Some(w as i32),
                         );
 
-                        let (b_w, b_h) = r.content_size();
+                        let b_size = r.measure();
+                        let (b_w, b_h) = (b_size.w, b_size.h);
                         if *x + b_w > w {
                             *x = 0.;
                             *y += b_h + gap;
@@ -139,7 +168,7 @@ impl Item {
                             base_x: *x,
                             base_y: *y,
 
-                            bounds: None,
+                            target: None,
                         };
                         *x += b_w + gap;
 
@@ -160,16 +189,18 @@ impl Item {
             dismissed: false,
 
             notif_r,
+            notif_rect,
+            notif_rect_transition: None,
             notif_style,
             notif_transition: None,
-            notif_bounds: None,
 
             implicit_action,
             action_buttons,
             hovering_button: None,
             buttons_visible: false,
 
-            bounds: None,
+            notif_target: None,
+            target: None,
         })
     }
 
@@ -219,11 +250,20 @@ impl Item {
         }
     }
 
+    fn card_hit(&self, at: (f64, f64)) -> bool {
+        self.notif_target.is_some_and(|target| target.contains(at))
+    }
+
+    // Returns the index of the button at (x, y), if any.
+    fn button_at(&self, at: (f64, f64)) -> Option<usize> {
+        self.action_buttons
+            .as_ref()
+            .and_then(|buttons| buttons.iter().position(|button| button.hit(at)))
+    }
+
     pub fn on_hover(&mut self, event: &PointerEvent) -> Vec<AppCommand> {
         // Check if the hover was on the card itself.
-        if let Some(bounds) = self.notif_bounds
-            && bounds.contains(event.position)
-        {
+        if self.card_hit(event.position) {
             let mut commands = vec![];
 
             // Since the hover target has now changed to the card, if there was already
@@ -241,20 +281,19 @@ impl Item {
         }
 
         // Check if the hover was on the button instead.
-        if self.buttons_visible {
-            let hit = self.action_buttons.as_mut().and_then(|buttons| {
-                buttons.iter_mut().enumerate().find(|el| {
-                    el.1.bounds
-                        .map(|bounds| bounds.contains(event.position))
-                        .unwrap_or(false)
-                })
-            });
+        if let Some(current) = self.button_at(event.position) {
+            let mut commands = vec![AppCommand::SetCursor(CursorIcon::Pointer)];
 
-            if let Some((current, button)) = hit {
-                let mut commands = vec![AppCommand::SetCursor(CursorIcon::Pointer)];
+            if self.hovering_button != Some(current) {
+                // Clear the previous button.
+                let _ = self.reset_hovering_button();
 
-                if self.hovering_button != Some(current) {
-                    // Show hover tint on the current button.
+                // Show hover tint on the current button.
+                if let Some(button) = self
+                    .action_buttons
+                    .as_mut()
+                    .and_then(|buttons| buttons.get_mut(current))
+                {
                     button.transition = Some(button::StyleTransition::new(
                         Duration::from_millis(100),
                         button::PartialStyle {
@@ -263,20 +302,17 @@ impl Item {
                         },
                         None,
                     ));
-
-                    // Clear the previous button.
-                    let _ = self.reset_hovering_button();
-
-                    // Track the current button.
-                    self.hovering_button = Some(current);
-
-                    // Trigger the draw loop only if something has changed here,
-                    // otherwise, we will draw on almost every frame.
-                    commands.push(AppCommand::Redraw);
                 }
 
-                return commands;
+                // Track the current button.
+                self.hovering_button = Some(current);
+
+                // Trigger the draw loop only if something has changed here,
+                // otherwise, we will draw on almost every frame.
+                commands.push(AppCommand::Redraw);
             }
+
+            return commands;
         }
 
         vec![]
@@ -294,10 +330,7 @@ impl Item {
     /// representing if the stack layout should be refreshed.
     pub fn on_left_click(&mut self, event: &PointerEvent) -> (Vec<AppCommand>, bool) {
         // Check the notif.
-        if !self.dismissed
-            && let Some(bounds) = self.notif_bounds
-            && bounds.contains(event.position)
-        {
+        if !self.dismissed && self.card_hit(event.position) {
             // Issue the implicit action if possible.
             if let Some(action) = self
                 .implicit_action
@@ -324,15 +357,11 @@ impl Item {
         }
 
         // Check buttons.
-        if !self.dismissed && self.buttons_visible {
-            let action = self.action_buttons.as_ref().and_then(|buttons| {
-                buttons
-                    .iter()
-                    .find(|button| {
-                        button
-                            .bounds
-                            .is_some_and(|bounds| bounds.contains(event.position))
-                    })
+        if !self.dismissed {
+            let action = self.button_at(event.position).and_then(|current| {
+                self.action_buttons
+                    .as_ref()
+                    .and_then(|buttons| buttons.get(current))
                     .map(|button| button.action.key().to_string())
             });
 
@@ -364,112 +393,65 @@ impl Item {
     /// Progresses all the transition attached to the item and returns a boolean
     /// indicating if all the transitions have completed.
     pub fn tick(&mut self, now: &Instant) -> bool {
-        // Progress the notification.
-        let notif_complete = if let Some(notif_t) = self.notif_transition.as_mut() {
-            let (style, complete) = notif_t.interpolate(&self.notif_style, now);
+        let mut complete = step(&mut self.notif_rect, &mut self.notif_rect_transition, now);
+        complete &= step(&mut self.notif_style, &mut self.notif_transition, now);
 
-            self.notif_style = style;
-            if complete {
-                self.notif_transition = None;
-            }
-
-            complete
-        } else {
-            true
-        };
-
-        // Progress the action buttons.
-        let mut buttons_complete = true;
         if let Some(buttons) = self.action_buttons.as_mut() {
             for button in buttons.iter_mut() {
-                buttons_complete &= if let Some(button_t) = button.transition.as_mut() {
-                    let (style, complete) = button_t.interpolate(&button.style, now);
-
-                    button.style = style;
-                    if complete {
-                        button.transition = None;
-                    }
-
-                    complete
-                } else {
-                    true
-                };
+                complete &= step(&mut button.style, &mut button.transition, now);
             }
         }
 
-        notif_complete & buttons_complete
+        complete
     }
 
-    /// Renders the current item to a cairo canvas and returns its rect bounds.
-    pub fn render(
-        &mut self,
-        cr: &cairo::Context,
-        clip_anchor: VerticalAnchor,
-    ) -> Result<Option<Rect>> {
+    /// Renders the current item to a cairo canvas and returns the rect it was
+    /// drawn in.
+    pub fn render(&self, cr: &cairo::Context) -> Result<Option<Rect>> {
         // If the card is not visible, do not even try rendering.
-        let notif_bounds = if self.notif_style.outer_opacity > 0. {
-            let notif_bounds = self
-                .notif_r
-                .render(cr, &self.notif_style, clip_anchor)
-                .context("Could not render notification")?;
-            self.notif_bounds = Some(notif_bounds);
+        if self.notif_style.outer_opacity <= 0. {
+            return Ok(None);
+        }
 
-            #[cfg(debug_assertions)]
-            if self.config.debug_mode {
-                cr.new_path();
-                cr.set_source_rgba(0., 0., 255., 0.5);
-                cr.rectangle(
-                    notif_bounds.x1,
-                    notif_bounds.y1,
-                    notif_bounds.w(),
-                    notif_bounds.h(),
-                );
-                let _ = cr.stroke();
-            }
+        let notif_rect = self.notif_rect;
+        self.notif_r
+            .paint(cr, notif_rect, &self.notif_style)
+            .context("Could not render notification")?;
 
-            Some(notif_bounds)
-        } else {
-            None
-        };
+        #[cfg(debug_assertions)]
+        if self.config.debug_mode {
+            cr.new_path();
+            cr.set_source_rgba(0., 0., 255., 0.5);
+            cr.rectangle(notif_rect.x1, notif_rect.y1, notif_rect.w(), notif_rect.h());
+            let _ = cr.stroke();
+        }
 
-        // If the card was not rendered or if the buttons are not visible, do not
-        // even try rendering them.
-        let bounds = if let Some(notif_bounds) = notif_bounds
-            && let Some(buttons) = self.action_buttons.as_mut()
-            && let Some(first) = buttons.first()
-            && first.style.opacity > 0.
+        let mut bounds = notif_rect;
+
+        // If the buttons are not visible, do not even try rendering them.
+        if let Some(buttons) = self.action_buttons.as_ref()
+            && buttons
+                .first()
+                .is_some_and(|first| first.style.opacity > 0.)
         {
-            let mut bounds = notif_bounds;
-
-            for button in buttons.iter_mut() {
-                let button_bounds = button
+            for button in buttons {
+                let rect = button.rect_below(&notif_rect);
+                button
                     .r
-                    .render(
-                        cr,
-                        &button.style,
-                        notif_bounds.x1 + button.base_x,
-                        notif_bounds.y2 + button.base_y,
-                    )
+                    .paint(cr, rect, &button.style)
                     .context("Could not draw")?;
 
-                button.bounds = Some(button_bounds);
-
-                // Extending the bounds that notification created to include the
-                // buttons from here.
-                bounds.y2 = button_bounds.y2;
+                bounds = bounds.union(&rect);
             }
+        }
 
-            Some(bounds)
-        } else {
-            notif_bounds
-        };
-
-        self.bounds = bounds;
-        Ok(bounds)
+        Ok(Some(bounds))
     }
+}
 
-    pub fn bounds(&self) -> Option<&Rect> {
-        self.bounds.as_ref()
+impl HitTarget for Item {
+    fn target(&self) -> Option<Rect> {
+        self.target
     }
 }
 
@@ -479,26 +461,22 @@ impl Item {
         &self,
         anchor: &Anchor,
         order: Order,
-    ) -> (notification::PartialStyle, button::PartialStyle, f64) {
+    ) -> (Rect, notification::Style, button::Style, f64) {
         let peek = self.config.stack.peek;
         let inset = self.config.stack.inset;
 
         let m_x = self.config.margin.x;
         let m_y = self.config.margin.y;
 
-        let (w, h) = self.notif_r.content_size();
+        let size = self.notif_r.measure();
+        let (w, h) = (size.w, size.h);
         let l_h = anchor.layer_height;
 
-        let (n_target, next) = match (anchor.vertical, order) {
+        let (n_rect, n_style, next) = match (anchor.vertical, order) {
             // The first item should take the full size and be visible.
             (VerticalAnchor::Top, Order::Visible(0, y)) => (
+                Rect::from_xywh(m_x, y, w, h),
                 notification::Style {
-                    w,
-                    h,
-
-                    x: m_x,
-                    y,
-
                     outer_opacity: if self.dismissed { 0. } else { 1. },
                     inner_opacity: if self.dismissed { 0. } else { 1. },
                 },
@@ -515,13 +493,8 @@ impl Item {
                 let h = h.min(y - m_y - peek);
 
                 (
+                    Rect::from_xywh(m_x + level * inset, y + peek - h, w - 2. * level * inset, h),
                     notification::Style {
-                        w: w - 2. * level * inset,
-                        h,
-
-                        x: m_x + level * inset,
-                        y: y + peek - h,
-
                         outer_opacity: if self.dismissed { 0. } else { 1. },
                         inner_opacity: 0.,
                     },
@@ -539,13 +512,8 @@ impl Item {
                 let h = h.min(y - m_y - peek);
 
                 (
+                    Rect::from_xywh(m_x + level * inset, y + peek - h, w - 2. * level * inset, h),
                     notification::Style {
-                        w: w - 2. * level * inset,
-                        h,
-
-                        x: m_x + level * inset,
-                        y: y + peek - h,
-
                         inner_opacity: 0.,
                         outer_opacity: 0.,
                     },
@@ -556,13 +524,8 @@ impl Item {
             // The first item on the stack should be completely visible.
             // The returned next value is the top of the current card.
             (VerticalAnchor::Bottom, Order::Visible(0, y)) => (
+                Rect::from_xywh(m_x, y - h, w, h),
                 notification::Style {
-                    w,
-                    h,
-
-                    x: m_x,
-                    y: y - h,
-
                     outer_opacity: if self.dismissed { 0. } else { 1. },
                     inner_opacity: if self.dismissed { 0. } else { 1. },
                 },
@@ -579,13 +542,8 @@ impl Item {
                 let h = h.min(l_h - y - m_y - peek);
 
                 (
+                    Rect::from_xywh(m_x + level * inset, y - peek, w - 2. * level * inset, h),
                     notification::Style {
-                        w: w - 2. * level * inset,
-                        h,
-
-                        x: m_x + level * inset,
-                        y: y - peek,
-
                         inner_opacity: 0.,
                         outer_opacity: if self.dismissed { 0. } else { 1. },
                     },
@@ -601,13 +559,8 @@ impl Item {
                 let h = h.min(l_h - y - m_y - peek);
 
                 (
+                    Rect::from_xywh(m_x + level * inset, y - h, w - 2. * level * inset, h),
                     notification::Style {
-                        w: w - 2. * level * inset,
-                        h,
-
-                        x: m_x + level * inset,
-                        y: y - h,
-
                         inner_opacity: 0.,
                         outer_opacity: 0.,
                     },
@@ -616,23 +569,24 @@ impl Item {
             }
         };
 
-        let b_target = button::Style {
+        let b_style = button::Style {
             light: 0.,
             opacity: 0.,
         };
 
-        (n_target.into(), b_target.into(), next)
+        (n_rect, n_style, b_style, next)
     }
 
     fn spread_target_style(
         &self,
         anchor: &Anchor,
         order: Order,
-    ) -> (notification::PartialStyle, button::PartialStyle, f64) {
+    ) -> (Rect, notification::Style, button::Style, f64) {
         let gap = self.config.spread.gap;
 
         let m_x = self.config.margin.x;
-        let (n_w, n_h) = self.notif_r.content_size();
+        let n_size = self.notif_r.measure();
+        let (n_w, n_h) = (n_size.w, n_size.h);
 
         let visible_buttons = button::Style {
             light: 0.,
@@ -650,24 +604,21 @@ impl Item {
                 // Assuming that the buttons are drawn and laid out in order meaning
                 // the bottom most button must be the last item in the list.
                 .and_then(|buttons| buttons.last())
-                .map(|button| {
-                    let (_, h) = button.r.content_size();
-                    button.base_y + h
-                })
+                .map(|button| button.base_y + button.r.measure().h)
                 .unwrap_or(0.)
         } else {
             0.
         };
 
-        let (n_target, b_target, next) = match (anchor.vertical, order) {
+        let (n_rect, n_style, b_style, next) = match (anchor.vertical, order) {
             (VerticalAnchor::Top, Order::Visible(_, y)) => (
+                Rect::from_xywh(
+                    m_x,
+                    if self.dismissed { y - n_h - gap } else { y },
+                    n_w,
+                    n_h,
+                ),
                 notification::Style {
-                    w: n_w,
-                    h: n_h,
-
-                    x: m_x,
-                    y: if self.dismissed { y - n_h - gap } else { y },
-
                     outer_opacity: if self.dismissed { 0. } else { 1. },
                     inner_opacity: if self.dismissed { 0. } else { 1. },
                 },
@@ -684,13 +635,8 @@ impl Item {
             ),
 
             (VerticalAnchor::Top, Order::Overflown(_, y)) => (
+                Rect::from_xywh(m_x, y, n_w, n_h),
                 notification::Style {
-                    w: n_w,
-                    h: n_h,
-
-                    x: m_x,
-                    y,
-
                     outer_opacity: 0.,
                     inner_opacity: 0.,
                 },
@@ -699,17 +645,17 @@ impl Item {
             ),
 
             (VerticalAnchor::Bottom, Order::Visible(_, y)) => (
-                notification::Style {
-                    w: n_w,
-                    h: n_h,
-
-                    x: m_x,
-                    y: if self.dismissed {
+                Rect::from_xywh(
+                    m_x,
+                    if self.dismissed {
                         y + n_h + gap
                     } else {
                         y - n_h - b_h
                     },
-
+                    n_w,
+                    n_h,
+                ),
+                notification::Style {
                     outer_opacity: if self.dismissed { 0. } else { 1. },
                     inner_opacity: if self.dismissed { 0. } else { 1. },
                 },
@@ -726,13 +672,8 @@ impl Item {
             ),
 
             (VerticalAnchor::Bottom, Order::Overflown(_, y)) => (
+                Rect::from_xywh(m_x, y - n_h, n_w, n_h),
                 notification::Style {
-                    w: n_w,
-                    h: n_h,
-
-                    x: m_x,
-                    y: y - n_h,
-
                     outer_opacity: 0.,
                     inner_opacity: 0.,
                 },
@@ -741,12 +682,12 @@ impl Item {
             ),
         };
 
-        (n_target.into(), b_target.into(), next)
+        (n_rect, n_style, b_style, next)
     }
 
-    /// Updates the transitions and the style of the item as per the visual state.
-    /// Returns the y position that the next visual element can start at if it does not
-    /// want to overlap with the current item.
+    /// Updates the transitions, the style and the hit targets of the item as per the
+    /// visual state. Returns the y position that the next visual element can start at
+    /// if it does not want to overlap with the current item.
     // TODO: Transtions should not be applied if one towards the same target is underway.
     pub fn set_visual_state(
         &mut self,
@@ -755,26 +696,69 @@ impl Item {
         order: Order,
         now: Option<Instant>,
     ) -> f64 {
-        let (n_transition, b_transition, next) = match layout {
+        let (n_rect, n_style, b_style, next) = match layout {
             Presentation::Stacked => self.stacked_target_style(anchor, order),
             Presentation::Spread => self.spread_target_style(anchor, order),
         };
 
+        self.notif_r.set_clip_anchor(clip_anchor(anchor));
+
+        self.notif_rect_transition =
+            Some(RectTransition::new(Duration::from_millis(200), n_rect, now));
         self.notif_transition = Some(notification::StyleTransition::new(
             Duration::from_millis(200),
-            n_transition,
+            n_style.clone().into(),
             now,
         ));
+
+        self.notif_target = (n_style.outer_opacity > 0.).then_some(n_rect);
+        let buttons_interactive = self.notif_target.is_some() && b_style.opacity > 0.;
+
+        let mut target = self.notif_target;
         if let Some(buttons) = self.action_buttons.as_mut() {
             for button in buttons.iter_mut() {
                 button.transition = Some(button::StyleTransition::new(
                     Duration::from_millis(125),
-                    b_transition.clone(),
+                    b_style.clone().into(),
                     now,
                 ));
+
+                button.target = buttons_interactive.then(|| button.rect_below(&n_rect));
+                if let (Some(item), Some(button)) = (target, button.target) {
+                    target = Some(item.union(&button));
+                }
             }
         }
+        self.target = target;
 
         next
     }
+}
+
+// The edge that the contents of a clipped card stick to.
+fn clip_anchor(anchor: &Anchor) -> VerticalAnchor {
+    match anchor.vertical {
+        VerticalAnchor::Top => VerticalAnchor::Bottom,
+        VerticalAnchor::Bottom => VerticalAnchor::Top,
+    }
+}
+
+// Progresses a transition on a value and returns a boolean indicating if it has
+// completed.
+fn step<S: Transitionable>(
+    value: &mut S,
+    transition: &mut Option<Transition<S>>,
+    now: &Instant,
+) -> bool {
+    let Some(t) = transition.as_mut() else {
+        return true;
+    };
+
+    let (next, complete) = t.interpolate(value, now);
+    *value = next;
+    if complete {
+        *transition = None;
+    }
+
+    complete
 }

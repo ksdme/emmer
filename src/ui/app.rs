@@ -1,6 +1,6 @@
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
-use anyhow::{Context, Result, anyhow};
+use anyhow::{Context, Result};
 use smithay_client_toolkit::{
     activation::{ActivationHandler, ActivationState, RequestData},
     compositor::{CompositorHandler, CompositorState, Region},
@@ -63,7 +63,7 @@ pub struct App {
     activation_state: ActivationState,
 
     shm: Shm,
-    buffer_pool: Mutex<BufferPool<3>>,
+    buffer_pool: BufferPool<3>,
 
     config: Arc<ComputedConfig>,
     anchor: Anchor,
@@ -470,7 +470,7 @@ impl App {
                 activation_state,
 
                 shm,
-                buffer_pool: Mutex::new(buffer_pool),
+                buffer_pool,
 
                 config: config.clone(),
                 anchor: anchor.clone(),
@@ -487,14 +487,10 @@ impl App {
     pub fn draw(&mut self) -> Result<()> {
         let wl_surface = self.layer_surface.wl_surface();
 
-        let mut buffer_pool = self
-            .buffer_pool
-            .lock()
-            .map_err(|err| anyhow!("Could not lock buffer pool: {err:?}"))?;
-
         // Try acquiring a free buffer and if we can't find one,
         // queue another frame callback and skip this frame.
-        let (frame_buffer, mem) = match buffer_pool
+        let (frame_buffer, mem) = match self
+            .buffer_pool
             .get(
                 self.anchor.layer_width as u32,
                 self.anchor.layer_width as u32 * 4,
@@ -519,51 +515,62 @@ impl App {
         // Render to a cairo surface.
         //
         // The unsafe here is acceptable because,
-        // 1. The cairo surface/context does not leave this method.
-        // 2. The method holds a lock on the buffer pool, so no changes can happen there.
-        // 3. SCTK Slots are reference counted, so even if the next frame drops the buffers,
+        // 1. `draw(&mut self)` has exclusive access to the buffer pool, and the app is only
+        //    ever reached through `&mut` on the UI thread.
+        // 2. The cairo surface/context are dropped at the end of this block, before the
+        //    buffer pool can be touched again. The pool may remap its memory on `get`.
+        // 3. Renderers only borrow the context, they must not retain it or its target.
+        // 4. SCTK Slots are reference counted, so even if the next frame drops the buffers,
         //    they will be around until Wayland releases them.
         //
         // Without the unsafe, we will end up having to first draw to a cairo surface and
         // then read out the entire buffer into Wayland SHM buffer.
-        let surface = unsafe {
-            cairo::ImageSurface::create_for_data_unsafe(
-                mem.as_mut_ptr(),
-                cairo::Format::ARgb32,
-                self.anchor.layer_width as i32,
-                self.anchor.layer_height as i32,
-                self.anchor.layer_width as i32 * 4,
-            )
-        }
-        .context("Could not create cairo surface")?;
-        let cx = cairo::Context::new(&surface).context("Could not create cairo context")?;
+        let (input_rect, settled) = {
+            let surface = unsafe {
+                cairo::ImageSurface::create_for_data_unsafe(
+                    mem.as_mut_ptr(),
+                    cairo::Format::ARgb32,
+                    self.anchor.layer_width as i32,
+                    self.anchor.layer_height as i32,
+                    self.anchor.layer_width as i32 * 4,
+                )
+            }
+            .context("Could not create cairo surface")?;
+            let cx = cairo::Context::new(&surface).context("Could not create cairo context")?;
 
-        let (bounds, settled) = self.stack.render(&cx).context("Could not render stack")?;
-
-        // Update the input region.
-        let region = Region::new(&self.compositor_state).context("Could not create region")?;
-        if let Some(bounds) = bounds {
-            let (x, y) = (bounds.x1 as i32 - 8, bounds.y1 as i32 - 8);
-            let (w, h) = (
-                bounds.w() as i32 + 16,
-                self.anchor.layer_height.min(bounds.h() + 16.) as i32,
-            );
-
-            region.add(x, y, w, h);
+            let (bounds, settled) = self.stack.render(&cx).context("Could not render stack")?;
+            let input_rect = bounds.map(|bounds| {
+                (
+                    bounds.x1 as i32 - 8,
+                    bounds.y1 as i32 - 8,
+                    bounds.w() as i32 + 16,
+                    self.anchor.layer_height.min(bounds.h() + 16.) as i32,
+                )
+            });
 
             #[cfg(debug_assertions)]
-            if self.config.debug_mode {
+            if self.config.debug_mode
+                && let Some((x, y, w, h)) = input_rect
+            {
                 cx.new_path();
                 cx.set_source_rgba(0., 255., 0., 0.5);
                 cx.rectangle(x as f64, y as f64, w as f64, h as f64);
                 let _ = cx.stroke();
             }
-        }
+
+            surface.flush();
+            (input_rect, settled)
+        };
+
+        // Update the input region.
         // Without bounds, this empties the input region.
+        let region = Region::new(&self.compositor_state).context("Could not create region")?;
+        if let Some((x, y, w, h)) = input_rect {
+            region.add(x, y, w, h);
+        }
         wl_surface.set_input_region(Some(region.wl_region()));
 
         // Request an update to the frame.
-        surface.flush();
         frame_buffer
             .attach_to(wl_surface)
             .context("Could not attach buffer")?;

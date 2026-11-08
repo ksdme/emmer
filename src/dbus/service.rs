@@ -1,7 +1,4 @@
-use std::{
-    sync::atomic::AtomicU32,
-    time::{Duration, Instant},
-};
+use std::{sync::atomic::AtomicU32, time::Duration};
 
 use anyhow::{Context, Error, Result, bail};
 use debug_ignore::DebugIgnore;
@@ -146,17 +143,17 @@ impl NotificationService {
             })
             .collect();
 
-        let expires_at = if expire_timeout == 0 {
+        let expiry = if expire_timeout == 0 {
             None
         } else if expire_timeout < 0 {
             match urgency {
                 // TODO: Maybe make the low and normal values configurable.
-                Urgency::Low => Some(Instant::now() + Duration::from_secs(5)),
-                Urgency::Normal => Some(Instant::now() + Duration::from_secs(10)),
+                Urgency::Low => Some(Duration::from_secs(5)),
+                Urgency::Normal => Some(Duration::from_secs(10)),
                 Urgency::Critical => None,
             }
         } else {
-            Some(Instant::now() + Duration::from_millis(expire_timeout as u64))
+            Some(Duration::from_millis(expire_timeout as u64))
         };
 
         // Build an instance of the notification from DBUS parameters.
@@ -180,7 +177,7 @@ impl NotificationService {
             urgency,
             actions,
 
-            expires_at,
+            expiry,
             created_at: chrono::Local::now(),
         };
 

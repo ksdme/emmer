@@ -1,4 +1,4 @@
-use std::{path::PathBuf, time::Instant};
+use std::{path::PathBuf, time::Duration};
 
 use debug_ignore::DebugIgnore;
 
@@ -77,7 +77,7 @@ pub struct Notification {
     pub actions: Vec<Action>,
 
     /// The timeout of the notification.
-    pub expires_at: Option<Instant>,
+    pub expiry: Option<Duration>,
 
     /// The datetime when the item was created.
     pub created_at: chrono::DateTime<chrono::Local>,

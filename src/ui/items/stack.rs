@@ -4,7 +4,7 @@ use smithay_client_toolkit::seat::pointer::{CursorIcon, PointerEvent};
 use std::{
     collections::{BTreeMap, HashSet},
     sync::Arc,
-    time::Instant,
+    time::{Duration, Instant},
 };
 
 use crate::{
@@ -32,8 +32,48 @@ pub enum AppCommand {
     NotifyAction(u32, String),
 }
 
+// The Time returned by our clock is an Instant. But, it might
+// not match Instant::now(). So, this makes it explicit.
+pub type Time = Instant;
+
+// A Clock based on Instant that can be paused and resumed.
+struct Clock {
+    base: Instant,
+    anchor: Option<Instant>,
+}
+
+impl Clock {
+    fn new() -> Self {
+        let now = Instant::now();
+        Self {
+            base: now,
+            anchor: Some(now),
+        }
+    }
+
+    fn pause(&mut self) {
+        self.base = self.now();
+        self.anchor = None;
+    }
+
+    fn resume(&mut self) {
+        if self.anchor.is_none() {
+            self.anchor = Some(Instant::now());
+        }
+    }
+
+    fn now(&self) -> Time {
+        self.base
+            + self
+                .anchor
+                .map_or(Duration::ZERO, |last| Instant::now() - last)
+    }
+}
+
 /// The container for the items.
 pub struct Stack {
+    clock: Clock,
+
     config: Arc<ComputedConfig>,
     anchor: Anchor,
     presentation: Presentation,
@@ -47,6 +87,8 @@ pub struct Stack {
 impl Stack {
     pub fn new(config: Arc<ComputedConfig>, anchor: Anchor) -> Self {
         Self {
+            clock: Clock::new(),
+
             config,
             anchor,
             presentation: Presentation::Stacked,
@@ -94,8 +136,13 @@ impl Stack {
     /// Pushes an item to the stack and returns a list of resulting side effects.
     pub fn push(&mut self, notification: Notification) -> Result<Vec<AppCommand>> {
         log::info!("stack.push: {:?}", notification.id);
-        let item = Item::spawn(notification, self.config.clone(), &self.layout())
-            .context("Could not spawn item")?;
+        let item = Item::spawn(
+            self.clock.now(),
+            notification,
+            self.config.clone(),
+            &self.layout(),
+        )
+        .context("Could not spawn item")?;
 
         self.items.insert(item.id(), item);
         self.update_visual_states();
@@ -108,8 +155,9 @@ impl Stack {
     pub fn dismiss_expired(&mut self) -> Vec<AppCommand> {
         let mut commands = vec![];
 
+        let now = self.clock.now();
         for item in self.items.values_mut() {
-            if item.is_expired() && item.dismiss() {
+            if item.is_expired(now) && item.dismiss() {
                 commands.push(AppCommand::NotifyClosed(item.id(), CloseReason::Expired));
             }
         }
@@ -125,16 +173,25 @@ impl Stack {
     /// Updates the internal presentation flag and returns a boolean indicating
     /// if the change was accepted.
     fn set_presentation(&mut self, presentation: Presentation) -> bool {
-        if self.presentation != presentation {
-            log::info!("stack.set_presentation: {:?}", presentation);
-
-            self.presentation = presentation;
-            self.update_visual_states();
-
-            true
-        } else {
-            false
+        if self.presentation == presentation {
+            return false;
         }
+
+        self.presentation = presentation;
+
+        // When the presentation is Spread, we assume that a user is interacting
+        // with them. In that case, it doesn't make sense to dismiss them.
+        // If there are some items that have almost expired, they might still be
+        // dismissed though which is not ideal.
+        match self.presentation {
+            Presentation::Spread => self.clock.pause(),
+            Presentation::Stacked => self.clock.resume(),
+        }
+
+        // Update the layout of the items.
+        self.update_visual_states();
+
+        true
     }
 
     fn layout(&self) -> Layout<'_> {

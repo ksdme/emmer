@@ -16,7 +16,7 @@ use crate::{
         anchors::{Anchor, VerticalAnchor},
         items::{
             layout::{self, Layout},
-            stack::AppCommand,
+            stack::{AppCommand, Time},
         },
         renderables::{Animated, Easing, Rect, Renderable, Timing, button, notification},
     },
@@ -57,7 +57,7 @@ pub struct Item {
     // so we can prevent duplicating the image data or having to use cairo's
     // unsafe methods.
     id: u32,
-    expires_at: Option<Instant>,
+    expires_at: Option<Time>,
 
     dismissed: bool,
 
@@ -73,6 +73,7 @@ pub struct Item {
 
 impl Item {
     pub fn spawn(
+        now: Time,
         notif: Notification,
         config: Arc<ComputedConfig>,
         layout: &Layout,
@@ -152,7 +153,7 @@ impl Item {
             config,
 
             id: notif.id,
-            expires_at: notif.expires_at,
+            expires_at: notif.expiry.map(|duration| now + duration),
 
             dismissed: false,
 
@@ -170,8 +171,8 @@ impl Item {
         self.id
     }
 
-    pub fn is_expired(&self) -> bool {
-        self.expires_at.is_some_and(|at| Instant::now() >= at)
+    pub fn is_expired(&self, now: Time) -> bool {
+        self.expires_at.is_some_and(|at| now >= at)
     }
 
     pub fn was_dismissed(&self) -> bool {

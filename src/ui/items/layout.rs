@@ -1,9 +1,10 @@
 use crate::{
     config::{SpreadConfig, StackConfig},
+    transitionable,
     ui::{
         anchors::{Anchor, VerticalAnchor},
         items::stack::Presentation,
-        renderables::{Rect, Size, button, notification},
+        renderables::{Rect, Size, notification},
     },
 };
 
@@ -20,13 +21,21 @@ pub struct Input {
     pub dismissed: bool,
 }
 
-/// Where and how an item should end up.
-#[derive(Debug, Clone, PartialEq)]
-pub struct Target {
-    pub rect: Rect,
-    pub style: notification::Style,
-    pub buttons: button::Style,
-}
+transitionable!(
+    /// Where and how an item should end up.
+    Target {
+        rect: Rect,
+        style: notification::Style,
+        buttons: ButtonsTarget,
+    }
+);
+
+transitionable!(
+    /// How the action buttons below a card should end up.
+    ButtonsTarget {
+        opacity: f64,
+    }
+);
 
 /// The parameters of a layout pass.
 ///
@@ -108,7 +117,7 @@ impl Layout<'_> {
                 outer_opacity: opacity(shown),
                 inner_opacity: opacity(shown && no == 0),
             },
-            buttons: button::Style::default(),
+            buttons: ButtonsTarget { opacity: 0. },
         };
 
         (target, next)
@@ -132,8 +141,7 @@ impl Layout<'_> {
                 outer_opacity: opacity(shown),
                 inner_opacity: opacity(shown),
             },
-            buttons: button::Style {
-                light: 0.,
+            buttons: ButtonsTarget {
                 opacity: opacity(buttons_h > 0.),
             },
         };

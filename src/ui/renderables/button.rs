@@ -69,10 +69,9 @@ impl Renderable for Button {
     }
 }
 
-transitionable!(
-    // The style of a button renderable.
-    Style {
-        light: f64,
-        opacity: f64,
-    }
-);
+/// The style of a button renderable.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct Style {
+    pub light: f64,
+    pub opacity: f64,
+}

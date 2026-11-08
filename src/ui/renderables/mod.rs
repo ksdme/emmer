@@ -98,80 +98,186 @@ impl Rect {
     }
 }
 
-impl Transitionable for Rect {
-    type Partial = Rect;
-
-    fn interpolate(&self, to: &Rect, progress: f64) -> Rect {
+impl Interp for Rect {
+    #[inline]
+    fn interp(self, to: Rect, frac: f64) -> Rect {
         Rect {
-            x1: self.x1.interp(Some(to.x1), progress),
-            y1: self.y1.interp(Some(to.y1), progress),
-            x2: self.x2.interp(Some(to.x2), progress),
-            y2: self.y2.interp(Some(to.y2), progress),
+            x1: self.x1.interp(to.x1, frac),
+            y1: self.y1.interp(to.y1, frac),
+            x2: self.x2.interp(to.x2, frac),
+            y2: self.y2.interp(to.y2, frac),
         }
     }
 }
 
-pub type RectTransition = Transition<Rect>;
-
 // A trait that allows us to provide implementations for how to interpolate values
-// of each type from a value a to optional b.
-pub trait Interp: Copy {
-    fn interp(self, to: Option<Self>, frac: f64) -> Self;
+// of each type from a value a to b.
+pub trait Interp: Copy + PartialEq {
+    fn interp(self, to: Self, frac: f64) -> Self;
 }
 
 impl Interp for f64 {
     #[inline]
-    fn interp(self, to: Option<f64>, frac: f64) -> f64 {
-        if let Some(to) = to
-            && self != to
-        {
-            self + (to - self) * frac
-        } else {
-            self
-        }
+    fn interp(self, to: f64, frac: f64) -> f64 {
+        self + (to - self) * frac
     }
 }
 
 impl Interp for Color {
     #[inline]
-    fn interp(self, to: Option<Color>, frac: f64) -> Color {
-        if let Some(to) = to
-            && self != to
-        {
-            Color {
-                r: (self.r + (to.r - self.r) * frac).clamp(0., 1.),
-                g: (self.g + (to.g - self.g) * frac).clamp(0., 1.),
-                b: (self.b + (to.b - self.b) * frac).clamp(0., 1.),
-                a: (self.a + (to.a - self.a) * frac).clamp(0., 1.),
-            }
-        } else {
-            self
+    fn interp(self, to: Color, frac: f64) -> Color {
+        Color {
+            r: self.r.interp(to.r, frac).clamp(0., 1.),
+            g: self.g.interp(to.g, frac).clamp(0., 1.),
+            b: self.b.interp(to.b, frac).clamp(0., 1.),
+            a: self.a.interp(to.a, frac).clamp(0., 1.),
         }
     }
 }
 
-/// Reprenents an implementation of Style that can be interpolated.
-/// This is a requirement for a style that needs to be transitionable.
-pub trait Transitionable: Clone {
-    type Partial: Clone;
-
-    fn interpolate(&self, to: &Self::Partial, progress: f64) -> Self;
+/// Maps the linear progress of a transition onto a curve.
+#[allow(dead_code)]
+#[derive(Debug, Default, Clone, Copy, PartialEq)]
+pub enum Easing {
+    #[default]
+    Linear,
+    EaseInCubic,
+    EaseOutCubic,
+    EaseInOutCubic,
 }
 
-/// A macro to define a style with a partial variant and a transition model.
+impl Easing {
+    /// Returns the eased progress for a linear progress in [0, 1].
+    pub fn apply(self, t: f64) -> f64 {
+        match self {
+            Easing::Linear => t,
+            Easing::EaseInCubic => t * t * t,
+            Easing::EaseOutCubic => 1. - (1. - t).powi(3),
+            Easing::EaseInOutCubic => {
+                if t < 0.5 {
+                    4. * t * t * t
+                } else {
+                    1. - (2. - 2. * t).powi(3) / 2.
+                }
+            }
+        }
+    }
+}
+
+/// The duration and the curve of a transition.
+#[derive(Debug, Default, Clone, Copy, PartialEq)]
+pub struct Timing {
+    pub duration: Duration,
+    pub easing: Easing,
+}
+
+impl Timing {
+    pub const fn new(duration: Duration, easing: Easing) -> Self {
+        Self { duration, easing }
+    }
+}
+
+/// A value with its own transition timeline.
+#[derive(Debug, Clone)]
+pub struct Animated<T: Interp> {
+    // The value as of the last tick.
+    value: T,
+
+    from: T,
+    to: T,
+    starts: Instant,
+    timing: Timing,
+}
+
+impl<T: Interp> Animated<T> {
+    /// Returns a value that is settled at value.
+    pub fn new(value: T) -> Self {
+        Self {
+            value,
+
+            from: value,
+            to: value,
+            starts: Instant::now(),
+            timing: Timing::default(),
+        }
+    }
+
+    /// The value as of the last tick.
+    pub fn get(&self) -> T {
+        self.value
+    }
+
+    /// The value the transition is heading towards.
+    pub fn target(&self) -> T {
+        self.to
+    }
+
+    /// Starts a transition from wherever the value is at now towards to. If the
+    /// value is already heading towards to, the transition underway is kept.
+    pub fn animate_to(&mut self, to: T, timing: Timing, now: Instant) {
+        if to == self.to {
+            return;
+        }
+
+        self.from = self.at(now);
+        self.to = to;
+        self.starts = now;
+        self.timing = timing;
+    }
+
+    /// Progresses the value to now and returns a boolean indicating if the
+    /// transition has completed.
+    pub fn tick(&mut self, now: Instant) -> bool {
+        self.value = self.at(now);
+        self.value == self.to
+    }
+
+    // The value of the transition at an Instant.
+    fn at(&self, now: Instant) -> T {
+        let duration = self.timing.duration.as_secs_f64();
+        let progress = if duration > 0. {
+            now.checked_duration_since(self.starts)
+                .unwrap_or_default()
+                .as_secs_f64()
+                .div(duration)
+                .clamp(0., 1.)
+        } else {
+            1.
+        };
+
+        if progress >= 1. {
+            self.to
+        } else {
+            self.from
+                .interp(self.to, self.timing.easing.apply(progress))
+        }
+    }
+}
+
+impl<T: Interp + Default> Default for Animated<T> {
+    fn default() -> Self {
+        Self::new(T::default())
+    }
+}
+
+/// A macro to define a style along with a partial variant and an animated variant
+/// that has an independent timeline for each of its fields.
 #[macro_export]
 macro_rules! transitionable {
     (
+        $(#[$meta:meta])*
         $name:ident {
             $($field:ident : $ty:ty),* $(,)?
         }
     ) => {
-        #[derive(Clone, Debug, Default, PartialEq)]
+        $(#[$meta])*
+        #[derive(Clone, Copy, Debug, Default, PartialEq)]
         pub struct $name {
             $(pub $field: $ty,)*
         }
 
         pastey::paste! {
+            #[allow(dead_code)]
             #[derive(Debug, Default, Clone)]
             pub struct [<Partial $name>] {
                 $(pub $field: Option<$ty>,)*
@@ -187,66 +293,79 @@ macro_rules! transitionable {
                 }
             }
 
-            impl $crate::ui::renderables::Transitionable for $name {
-                type Partial = [<Partial $name>];
-
-                fn interpolate(&self, to: &Self::Partial, progress: f64) -> $name {
+            // Allows the style to be nested as a single field of another style.
+            impl $crate::ui::renderables::Interp for $name {
+                #[inline]
+                fn interp(self, to: Self, frac: f64) -> Self {
                     $name {
                         $(
-                            $field: $crate::ui::renderables::Interp::interp(self.$field, to.$field, progress),
+                            $field: $crate::ui::renderables::Interp::interp(self.$field, to.$field, frac),
                         )*
                     }
                 }
             }
 
-            pub type [<$name Transition>] = $crate::ui::renderables::Transition<$name>;
+            #[allow(dead_code)]
+            #[derive(Debug, Default, Clone)]
+            pub struct [<Animated $name>] {
+                $(pub $field: $crate::ui::renderables::Animated<$ty>,)*
+            }
+
+            #[allow(dead_code)]
+            impl [<Animated $name>] {
+                pub fn new(value: $name) -> Self {
+                    Self {
+                        $(
+                            $field: $crate::ui::renderables::Animated::new(value.$field),
+                        )*
+                    }
+                }
+
+                /// The value as of the last tick.
+                pub fn get(&self) -> $name {
+                    $name {
+                        $(
+                            $field: self.$field.get(),
+                        )*
+                    }
+                }
+
+                /// The value the transitions are heading towards.
+                pub fn target(&self) -> $name {
+                    $name {
+                        $(
+                            $field: self.$field.target(),
+                        )*
+                    }
+                }
+
+                /// Retargets only the fields that are set on to.
+                pub fn animate_to(
+                    &mut self,
+                    to: impl Into<[<Partial $name>]>,
+                    timing: $crate::ui::renderables::Timing,
+                    now: std::time::Instant,
+                ) {
+                    let to = to.into();
+                    $(
+                        if let Some(value) = to.$field {
+                            self.$field.animate_to(value, timing, now);
+                        }
+                    )*
+                }
+
+                /// Progresses all the fields to now and returns a boolean indicating
+                /// if all of their transitions have completed.
+                pub fn tick(&mut self, now: std::time::Instant) -> bool {
+                    let mut complete = true;
+                    $(
+                        complete &= self.$field.tick(now);
+                    )*
+                    complete
+                }
+            }
         }
     };
-}
-
-/// Represents the parameters of a transition of a style into another.
-#[derive(Debug, Clone)]
-pub struct Transition<S: Transitionable + Clone> {
-    starts: Instant,
-    duration: Duration,
-
-    from: Option<S>,
-    to: S::Partial,
-}
-
-impl<S> Transition<S>
-where
-    S: Transitionable + Clone,
-{
-    /// Returns a new transition to target_state with a shared clock.
-    pub fn new(duration: Duration, to: S::Partial, starts: Option<Instant>) -> Self {
-        Self {
-            starts: starts.unwrap_or_else(Instant::now),
-            duration,
-
-            from: None,
-            to,
-        }
-    }
-
-    /// Interpolates the transition to an Instant.
-    pub fn interpolate(&mut self, current: &S, now: &Instant) -> (S, bool) {
-        // The progress of the transition as [0, 1].
-        let progress = now
-            .checked_duration_since(self.starts)
-            .unwrap_or_default()
-            .as_secs_f64()
-            .div(self.duration.as_secs_f64())
-            .clamp(0., 1.);
-
-        // The first interpolation request is treated as the starting point of
-        // the transition.
-        let from = self.from.get_or_insert_with(|| current.clone());
-
-        // Return an interpolated visual state along with a boolean indicating if the
-        // transition is complete.
-        (from.interpolate(&self.to, progress), progress >= 1.)
-    }
 }
 
 /// The contract shared by all the renderables. The layout measures a renderable,
@@ -279,3 +398,107 @@ pub mod card;
 pub mod image;
 pub mod notification;
 pub mod text;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const LINEAR: Timing = Timing::new(Duration::from_millis(100), Easing::Linear);
+
+    transitionable!(Pair { a: f64, b: f64 });
+
+    fn ms(at: Instant, millis: u64) -> Instant {
+        at + Duration::from_millis(millis)
+    }
+
+    #[test]
+    fn from_is_captured_when_the_transition_starts() {
+        let t0 = Instant::now();
+        let mut value = Animated::new(0.);
+        value.animate_to(1., LINEAR, t0);
+
+        // A late first frame lands where the clock says, not at the start.
+        assert!(!value.tick(ms(t0, 50)));
+        assert_eq!(value.get(), 0.5);
+    }
+
+    #[test]
+    fn retargeting_continues_from_the_current_value() {
+        let t0 = Instant::now();
+        let mut value = Animated::new(0.);
+        value.animate_to(1., LINEAR, t0);
+
+        // Retarget without ticking in between.
+        value.animate_to(0., LINEAR, ms(t0, 50));
+        value.tick(ms(t0, 50));
+        assert_eq!(value.get(), 0.5);
+
+        value.tick(ms(t0, 100));
+        assert_eq!(value.get(), 0.25);
+    }
+
+    #[test]
+    fn retargeting_to_the_same_target_keeps_the_transition() {
+        let t0 = Instant::now();
+        let mut value = Animated::new(0.);
+        value.animate_to(1., LINEAR, t0);
+        value.animate_to(1., LINEAR, ms(t0, 50));
+
+        assert!(value.tick(ms(t0, 100)));
+        assert_eq!(value.get(), 1.);
+    }
+
+    #[test]
+    fn partial_updates_only_retarget_the_fields_they_touch() {
+        let t0 = Instant::now();
+        let mut pair = AnimatedPair::new(Pair { a: 0., b: 0. });
+        pair.animate_to(Pair { a: 1., b: 1. }, LINEAR, t0);
+
+        pair.animate_to(
+            PartialPair {
+                a: None,
+                b: Some(0.),
+            },
+            LINEAR,
+            ms(t0, 50),
+        );
+
+        pair.tick(ms(t0, 100));
+        assert_eq!(pair.get(), Pair { a: 1., b: 0.25 });
+    }
+
+    #[test]
+    fn styles_nest_as_a_single_field() {
+        transitionable!(Outer {
+            inner: Pair,
+            c: f64
+        });
+
+        let t0 = Instant::now();
+        let mut outer = AnimatedOuter::new(Outer::default());
+        outer.animate_to(
+            Outer {
+                inner: Pair { a: 1., b: 0.5 },
+                c: 1.,
+            },
+            LINEAR,
+            t0,
+        );
+
+        outer.tick(ms(t0, 50));
+        assert_eq!(outer.get().inner, Pair { a: 0.5, b: 0.25 });
+    }
+
+    #[test]
+    fn easings_start_and_end_at_the_bounds() {
+        for easing in [
+            Easing::Linear,
+            Easing::EaseInCubic,
+            Easing::EaseOutCubic,
+            Easing::EaseInOutCubic,
+        ] {
+            assert_eq!(easing.apply(0.), 0., "{easing:?}");
+            assert_eq!(easing.apply(1.), 1., "{easing:?}");
+        }
+    }
+}

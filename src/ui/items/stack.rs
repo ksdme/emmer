@@ -247,7 +247,7 @@ impl Stack {
         let mut settled_dismissals = HashSet::<u32>::new();
 
         for (id, item) in self.items.iter_mut() {
-            let item_settled = item.tick(&now);
+            let item_settled = item.tick(now);
 
             // Render and update the scene bounds.
             if let Some(bounds) = item.render(cx).context("Could not render item: {id}")? {

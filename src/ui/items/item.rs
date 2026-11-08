@@ -18,9 +18,7 @@ use crate::{
             layout::{self, Layout},
             stack::AppCommand,
         },
-        renderables::{
-            Rect, RectTransition, Renderable, Transition, Transitionable, button, notification,
-        },
+        renderables::{Animated, Easing, Rect, Renderable, Timing, button, notification},
     },
 };
 
@@ -30,8 +28,8 @@ pub struct ActionButton {
     action: Action,
 
     r: button::Button,
-    style: button::Style,
-    transition: Option<button::StyleTransition>,
+    // The hover tint, which is interaction state and is never touched by the layout.
+    light: Animated<f64>,
 
     // Since the layout of these buttons are fixed, we calculate
     // them ahead of time and store it relative to the bottom left corner
@@ -64,18 +62,13 @@ pub struct Item {
     dismissed: bool,
 
     notif_r: notification::Notification,
-    notif_rect: Rect,
-    notif_rect_transition: Option<RectTransition>,
-    notif_style: notification::Style,
-    notif_transition: Option<notification::StyleTransition>,
+    // The layout state of the item, which is only ever driven by set_target.
+    visual: layout::AnimatedTarget,
 
     implicit_action: Option<Action>,
     action_buttons: Option<Vec<ActionButton>>,
     hovering_button: Option<usize>,
     buttons_visible: bool,
-
-    // The target the item was last laid out at, if it has been laid out yet.
-    layout_target: Option<layout::Target>,
 }
 
 impl Item {
@@ -98,10 +91,13 @@ impl Item {
         let size = notif_r.measure();
         let w = size.w;
 
-        let notif_rect = layout.spawn(size);
-        let notif_style = notification::Style {
-            outer_opacity: 1.,
-            inner_opacity: 1.,
+        let visual = layout::Target {
+            rect: layout.spawn(size),
+            style: notification::Style {
+                outer_opacity: 1.,
+                inner_opacity: 1.,
+            },
+            buttons: layout::ButtonsTarget { opacity: 0. },
         };
 
         let (implicit_action, action_buttons) = match notif.actions.as_slice() {
@@ -137,8 +133,7 @@ impl Item {
                             action: action.clone(),
 
                             r,
-                            style: button::Style::default(),
-                            transition: None,
+                            light: Animated::new(0.),
 
                             base_x: *x,
                             base_y: *y,
@@ -162,17 +157,12 @@ impl Item {
             dismissed: false,
 
             notif_r,
-            notif_rect,
-            notif_rect_transition: None,
-            notif_style,
-            notif_transition: None,
+            visual: layout::AnimatedTarget::new(visual),
 
             implicit_action,
             action_buttons,
             hovering_button: None,
             buttons_visible: false,
-
-            layout_target: None,
         })
     }
 
@@ -199,30 +189,17 @@ impl Item {
         }
     }
 
-    // The opacity of the buttons as per the current layout. Hover transitions
-    // replace the layout transition, so they need to carry it forward.
-    fn buttons_opacity(&self) -> f64 {
-        self.layout_target
-            .as_ref()
-            .map_or(0., |target| target.buttons.opacity)
-    }
-
     fn reset_hovering_button(&mut self) -> bool {
-        let opacity = self.buttons_opacity();
-
         if let Some(current) = self.hovering_button
             && let Some(buttons) = self.action_buttons.as_mut()
             && let Some(button) = buttons.get_mut(current)
         {
             // Rest tint on the current button.
-            button.transition = Some(button::StyleTransition::new(
-                Duration::from_millis(100),
-                button::PartialStyle {
-                    light: Some(0.),
-                    opacity: Some(opacity),
-                },
-                None,
-            ));
+            button.light.animate_to(
+                0.,
+                Timing::new(Duration::from_millis(100), Easing::EaseOutCubic),
+                Instant::now(),
+            );
 
             self.hovering_button = None;
 
@@ -234,15 +211,15 @@ impl Item {
 
     // The rect the card occupies in the current layout, if it is interactable.
     fn notif_target(&self) -> Option<Rect> {
-        self.layout_target
-            .as_ref()
-            .filter(|target| target.style.outer_opacity > 0.)
-            .map(|target| target.rect)
+        let target = self.visual.target();
+        (target.style.outer_opacity > 0.).then_some(target.rect)
     }
 
     // The rects the buttons occupy in the current layout, if they are interactable.
     fn button_targets(&self) -> impl Iterator<Item = Rect> + '_ {
-        let card = self.notif_target().filter(|_| self.buttons_opacity() > 0.);
+        let card = self
+            .notif_target()
+            .filter(|_| self.visual.buttons.target().opacity > 0.);
 
         card.into_iter().flat_map(|card| {
             self.action_buttons
@@ -290,20 +267,16 @@ impl Item {
                 let _ = self.reset_hovering_button();
 
                 // Show hover tint on the current button.
-                let opacity = self.buttons_opacity();
                 if let Some(button) = self
                     .action_buttons
                     .as_mut()
                     .and_then(|buttons| buttons.get_mut(current))
                 {
-                    button.transition = Some(button::StyleTransition::new(
-                        Duration::from_millis(100),
-                        button::PartialStyle {
-                            light: Some(0.03),
-                            opacity: Some(opacity),
-                        },
-                        None,
-                    ));
+                    button.light.animate_to(
+                        0.03,
+                        Timing::new(Duration::from_millis(100), Easing::EaseOutCubic),
+                        Instant::now(),
+                    );
                 }
 
                 // Track the current button.
@@ -394,14 +367,10 @@ impl Item {
 
     /// Progresses all the transition attached to the item and returns a boolean
     /// indicating if all the transitions have completed.
-    pub fn tick(&mut self, now: &Instant) -> bool {
-        let mut complete = step(&mut self.notif_rect, &mut self.notif_rect_transition, now);
-        complete &= step(&mut self.notif_style, &mut self.notif_transition, now);
-
-        if let Some(buttons) = self.action_buttons.as_mut() {
-            for button in buttons.iter_mut() {
-                complete &= step(&mut button.style, &mut button.transition, now);
-            }
+    pub fn tick(&mut self, now: Instant) -> bool {
+        let mut complete = self.visual.tick(now);
+        for button in self.action_buttons.iter_mut().flatten() {
+            complete &= button.light.tick(now);
         }
 
         complete
@@ -410,14 +379,16 @@ impl Item {
     /// Renders the current item to a cairo canvas and returns the rect it was
     /// drawn in.
     pub fn render(&self, cr: &cairo::Context) -> Result<Option<Rect>> {
+        let visual = self.visual.get();
+
         // If the card is not visible, do not even try rendering.
-        if self.notif_style.outer_opacity <= 0. {
+        if visual.style.outer_opacity <= 0. {
             return Ok(None);
         }
 
-        let notif_rect = self.notif_rect;
+        let notif_rect = visual.rect;
         self.notif_r
-            .paint(cr, notif_rect, &self.notif_style)
+            .paint(cr, notif_rect, &visual.style)
             .context("Could not render notification")?;
 
         #[cfg(debug_assertions)]
@@ -431,17 +402,17 @@ impl Item {
         let mut bounds = notif_rect;
 
         // If the buttons are not visible, do not even try rendering them.
+        let opacity = visual.buttons.opacity;
         if let Some(buttons) = self.action_buttons.as_ref()
-            && buttons
-                .first()
-                .is_some_and(|first| first.style.opacity > 0.)
+            && opacity > 0.
         {
             for button in buttons {
                 let rect = button.rect_below(&notif_rect);
-                button
-                    .r
-                    .paint(cr, rect, &button.style)
-                    .context("Could not draw")?;
+                let style = button::Style {
+                    light: button.light.get(),
+                    opacity,
+                };
+                button.r.paint(cr, rect, &style).context("Could not draw")?;
 
                 bounds = bounds.union(&rect);
             }
@@ -451,7 +422,6 @@ impl Item {
     }
 }
 
-// Methods for managing visual state.
 impl Item {
     /// The rect the item occupies in the current layout, if it is interactable.
     pub fn target(&self) -> Option<Rect> {
@@ -490,36 +460,11 @@ impl Item {
     /// Moves the item towards a new layout target. Only the parts of the target
     /// that changed are transitioned, so that the ones underway are not restarted.
     pub fn set_target(&mut self, target: layout::Target, now: Instant) {
-        let now = Some(now);
-        let previous = self.layout_target.take();
-
-        if previous.as_ref().is_none_or(|p| p.rect != target.rect) {
-            self.notif_rect_transition = Some(RectTransition::new(
-                Duration::from_millis(200),
-                target.rect,
-                now,
-            ));
-        }
-
-        if previous.as_ref().is_none_or(|p| p.style != target.style) {
-            self.notif_transition = Some(notification::StyleTransition::new(
-                Duration::from_millis(200),
-                target.style.clone().into(),
-                now,
-            ));
-        }
-
-        if previous.is_none_or(|p| p.buttons != target.buttons) {
-            for button in self.action_buttons.iter_mut().flatten() {
-                button.transition = Some(button::StyleTransition::new(
-                    Duration::from_millis(125),
-                    target.buttons.clone().into(),
-                    now,
-                ));
-            }
-        }
-
-        self.layout_target = Some(target);
+        self.visual.animate_to(
+            target,
+            Timing::new(Duration::from_millis(200), Easing::EaseOutCubic),
+            now,
+        );
     }
 }
 
@@ -529,24 +474,4 @@ fn clip_anchor(anchor: &Anchor) -> VerticalAnchor {
         VerticalAnchor::Top => VerticalAnchor::Bottom,
         VerticalAnchor::Bottom => VerticalAnchor::Top,
     }
-}
-
-// Progresses a transition on a value and returns a boolean indicating if it has
-// completed.
-fn step<S: Transitionable>(
-    value: &mut S,
-    transition: &mut Option<Transition<S>>,
-    now: &Instant,
-) -> bool {
-    let Some(t) = transition.as_mut() else {
-        return true;
-    };
-
-    let (next, complete) = t.interpolate(value, now);
-    *value = next;
-    if complete {
-        *transition = None;
-    }
-
-    complete
 }

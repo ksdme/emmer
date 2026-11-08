@@ -3,7 +3,7 @@ use smithay_client_toolkit::seat::pointer::{CursorIcon, PointerEvent};
 
 use std::{
     collections::{BTreeMap, HashSet},
-    sync::Arc,
+    rc::Rc,
     time::{Duration, Instant},
 };
 
@@ -74,7 +74,7 @@ impl Clock {
 pub struct Stack {
     clock: Clock,
 
-    config: Arc<ComputedConfig>,
+    config: Rc<ComputedConfig>,
     anchor: Anchor,
     presentation: Presentation,
 
@@ -86,7 +86,7 @@ pub struct Stack {
 }
 
 impl Stack {
-    pub fn new(config: Arc<ComputedConfig>, anchor: Anchor) -> Self {
+    pub fn new(config: Rc<ComputedConfig>, anchor: Anchor) -> Self {
         Self {
             clock: Clock::new(),
 

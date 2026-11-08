@@ -1,5 +1,5 @@
 use std::{
-    sync::Arc,
+    rc::Rc,
     time::{Duration, Instant},
 };
 
@@ -27,7 +27,7 @@ transitionable!(
 /// while there is more than one notification.
 #[derive(Debug)]
 pub struct Bar {
-    config: Arc<ComputedConfig>,
+    config: Rc<ComputedConfig>,
 
     count: usize,
 
@@ -40,7 +40,7 @@ pub struct Bar {
 }
 
 impl Bar {
-    pub fn new(config: Arc<ComputedConfig>) -> Self {
+    pub fn new(config: Rc<ComputedConfig>) -> Self {
         Self {
             bar_r: bar::Bar::new(&config, 0, Insets { x: 12., y: 6. }),
             config,

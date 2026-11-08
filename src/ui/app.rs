@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::rc::Rc;
 
 use anyhow::{Context, Result};
 use smithay_client_toolkit::{
@@ -65,7 +65,7 @@ pub struct App {
     shm: Shm,
     buffer_pool: BufferPool<3>,
 
-    config: Arc<ComputedConfig>,
+    config: Rc<ComputedConfig>,
     anchor: Anchor,
 
     stack: Stack,
@@ -411,7 +411,7 @@ impl App {
         conn: &Connection,
         server_tx: tokio::sync::mpsc::UnboundedSender<ServerMessage>,
     ) -> Result<(Self, EventQueue<Self>)> {
-        let config = Arc::new(config);
+        let config = Rc::new(config);
 
         let (globals, event_queue) =
             registry_queue_init::<Self>(conn).context("Could not create wayland queue")?;

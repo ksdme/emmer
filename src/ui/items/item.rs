@@ -1,5 +1,5 @@
 use std::{
-    sync::Arc,
+    rc::Rc,
     time::{Duration, Instant},
 };
 
@@ -51,7 +51,7 @@ impl ActionButton {
 /// Represents a logical notification item.
 #[derive(Debug)]
 pub struct Item {
-    config: Arc<ComputedConfig>,
+    config: Rc<ComputedConfig>,
 
     // Instead of holding onto the notification object we move the fields here
     // so we can prevent duplicating the image data or having to use cairo's
@@ -75,7 +75,7 @@ impl Item {
     pub fn spawn(
         now: Time,
         notif: Notification,
-        config: Arc<ComputedConfig>,
+        config: Rc<ComputedConfig>,
         layout: &Layout,
     ) -> Result<Self> {
         let mut notif_r = notification::Notification::new(
@@ -321,7 +321,7 @@ impl Item {
             }
 
             // Toggle the buttons.
-            if let Some(_) = self.action_buttons {
+            if self.action_buttons.is_some() {
                 self.buttons_visible = !self.buttons_visible;
 
                 // Again, the true here should trigger a visual state update and a

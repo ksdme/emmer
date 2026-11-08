@@ -2,8 +2,7 @@ use anyhow::{Context, Result};
 
 use crate::{
     config::{ComputedConfig, Insets},
-    dbus,
-    logged,
+    dbus, logged,
     ui::{
         anchors::VerticalAnchor,
         renderables::{Color, Rect, Renderable, Size, card, image, text},
@@ -37,11 +36,7 @@ impl Notification {
         created_at: Option<&str>,
     ) -> Result<Self> {
         let image_r = if let Some(image) = image {
-            logged!(
-                image::Image::new(image)
-                    .context("Could not initialize image")
-            )
-            .ok()
+            logged!(image::Image::new(image).context("Could not initialize image")).ok()
         } else {
             None
         };

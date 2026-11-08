@@ -393,6 +393,7 @@ pub fn rounded_sub_path(cr: &cairo::Context, x: f64, y: f64, w: f64, h: f64, r: 
     cr.close_path();
 }
 
+pub mod bar;
 pub mod button;
 pub mod card;
 pub mod image;

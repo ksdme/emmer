@@ -486,7 +486,7 @@ impl App {
                 buffer_pool,
 
                 config: config.clone(),
-                anchor: anchor,
+                anchor,
 
                 stack: Stack::new(config, anchor),
                 stack_hovering: false,

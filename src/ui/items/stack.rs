@@ -12,7 +12,7 @@ use crate::{
     dbus::{notification::Notification, service::CloseReason},
     ui::{
         anchors::{Anchor, VerticalAnchor},
-        items::{Item, layout::Layout},
+        items::{Item, bar::Bar, layout::Layout},
         renderables::Rect,
     },
 };
@@ -78,6 +78,7 @@ pub struct Stack {
     anchor: Anchor,
     presentation: Presentation,
 
+    bar: Bar,
     items: BTreeMap<u32, Item>,
 
     bounds: Option<Rect>,
@@ -89,11 +90,12 @@ impl Stack {
         Self {
             clock: Clock::new(),
 
+            bar: Bar::new(config.clone()),
+            items: BTreeMap::new(),
+
             config,
             anchor,
             presentation: Presentation::Stacked,
-
-            items: BTreeMap::new(),
 
             bounds: None,
             hovering: None,
@@ -132,6 +134,10 @@ impl Stack {
         None
     }
 
+    fn bar_hit(&self, at: (f64, f64)) -> bool {
+        self.bar.target().is_some_and(|target| target.contains(at))
+    }
+
     // TODO: Lock the items.
     /// Pushes an item to the stack and returns a list of resulting side effects.
     pub fn push(&mut self, notification: Notification) -> Result<Vec<AppCommand>> {
@@ -140,7 +146,7 @@ impl Stack {
             self.clock.now(),
             notification,
             self.config.clone(),
-            &self.layout(),
+            &Self::layout(&self.config, &self.anchor, self.presentation, &self.bar),
         )
         .context("Could not spawn item")?;
 
@@ -161,6 +167,25 @@ impl Stack {
                 commands.push(AppCommand::NotifyClosed(item.id(), CloseReason::Expired));
             }
         }
+
+        if !commands.is_empty() {
+            self.update_visual_states();
+            commands.push(AppCommand::Redraw);
+        }
+
+        commands
+    }
+
+    /// Dismisses all the items and returns a list of resulting side effects.
+    fn dismiss_all(&mut self) -> Vec<AppCommand> {
+        let mut commands = self
+            .items
+            .values_mut()
+            .filter_map(|item| {
+                item.dismiss()
+                    .then(|| AppCommand::NotifyClosed(item.id(), CloseReason::Manual))
+            })
+            .collect::<Vec<_>>();
 
         if !commands.is_empty() {
             self.update_visual_states();
@@ -194,16 +219,23 @@ impl Stack {
         true
     }
 
-    fn layout(&self) -> Layout<'_> {
+    // Takes only the fields it needs, so that the layout does not hold onto the
+    // whole stack while the bar is being updated.
+    fn layout<'a>(
+        config: &'a ComputedConfig,
+        anchor: &'a Anchor,
+        presentation: Presentation,
+        bar: &Bar,
+    ) -> Layout<'a> {
         Layout {
-            anchor: &self.anchor,
-            presentation: self.presentation,
+            anchor,
+            presentation,
 
-            margin_x: self.config.margin.x,
-            stack: &self.config.stack,
-            spread: &self.config.spread,
+            margin_x: config.margin.x,
+            stack: &config.stack,
+            spread: &config.spread,
 
-            origin: self.config.margin.y,
+            origin: config.margin.y + bar.push(),
         }
     }
 
@@ -211,10 +243,17 @@ impl Stack {
     fn update_visual_states(&mut self) {
         let now = Instant::now();
 
-        let targets = self
-            .layout()
-            .targets(self.items.values().rev().map(Item::layout_input));
+        let count = self
+            .items
+            .values()
+            .filter(|item| !item.was_dismissed())
+            .count();
+        self.bar.set_count(count, now);
 
+        let layout = Self::layout(&self.config, &self.anchor, self.presentation, &self.bar);
+        self.bar.set_target(&layout, now);
+
+        let targets = layout.targets(self.items.values().rev().map(Item::layout_input));
         for (item, target) in self.items.values_mut().rev().zip(targets) {
             item.set_target(target, now);
         }
@@ -223,6 +262,20 @@ impl Stack {
     /// The handler for when a pointer is hovering within the bounds of this
     /// stack.
     pub fn on_hover(&mut self, event: &PointerEvent) -> Vec<AppCommand> {
+        // The bar is drawn over the items, so it takes precedence.
+        if self.bar_hit(event.position) {
+            let mut commands = self.bar.on_hover(event);
+
+            if let Some(previous) = self.hovering.take()
+                && let Some(previous) = self.items.get_mut(&previous)
+            {
+                commands.extend(previous.on_leave(event));
+            }
+
+            return commands;
+        }
+        let bar_commands = self.bar.on_leave();
+
         // Trigger on_hover on the current item.
         let (hit, mut commands) = if let Some(item) = self.find_at_mut(event.position) {
             let id = item.id();
@@ -246,6 +299,7 @@ impl Stack {
         }
         self.hovering = hit;
 
+        commands.extend(bar_commands);
         commands
     }
 
@@ -253,6 +307,7 @@ impl Stack {
     /// This method is only expected to be called once after a leave happens.
     pub fn on_leave(&mut self) -> Vec<AppCommand> {
         self.set_presentation(Presentation::Stacked);
+        let _ = self.bar.on_leave();
 
         vec![
             AppCommand::Redraw,
@@ -263,6 +318,14 @@ impl Stack {
     /// The handler for when a pointer left click happens within the bounds of
     /// this stack.
     pub fn on_left_click(&mut self, event: &PointerEvent) -> Vec<AppCommand> {
+        if self.bar_hit(event.position) {
+            return if self.bar.on_left_click(event) {
+                self.dismiss_all()
+            } else {
+                vec![]
+            };
+        }
+
         if let Some(item) = self.find_at_mut(event.position) {
             let (mut commands, update_visual_states) = item.on_left_click(event);
 
@@ -280,6 +343,10 @@ impl Stack {
     /// The handler for when a pointer right click happens within the bounds of
     /// this stack.
     pub fn on_right_click(&mut self, event: &PointerEvent) -> Vec<AppCommand> {
+        if self.bar_hit(event.position) {
+            return vec![];
+        }
+
         if let Some(item) = self.find_at_mut(event.position) {
             let (mut commands, update_visual_states) = item.on_right_click(event);
 
@@ -322,6 +389,12 @@ impl Stack {
 
         if !settled_dismissals.is_empty() {
             self.items.retain(|id, _| !settled_dismissals.contains(id));
+        }
+
+        // The bar is drawn last so that the items slide in and out from under it.
+        settled &= self.bar.tick(now);
+        if let Some(bounds) = self.bar.render(cx)? {
+            full_bounds = Some(full_bounds.map_or(bounds, |fb| fb.union(&bounds)));
         }
 
         #[cfg(debug_assertions)]

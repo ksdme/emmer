@@ -1,3 +1,4 @@
+mod bar;
 mod item;
 mod layout;
 pub mod stack;

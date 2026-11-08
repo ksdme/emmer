@@ -77,7 +77,7 @@ fn scale(image: image::DynamicImage, max_w: f64, max_h: Option<f64>) -> Image {
     // CAIRO_FORMAT_ARGB32: This format uses 8 bits each for Alpha, Red, Green, and Blue.
     // It uses pre-multiplied alpha, meaning color channels are already multiplied by the
     // alpha value (e.g., 50% transparent red is 0x80800000, not 0x80ff0000)
-    for px in pixels.chunks_exact_mut(4) {
+    for px in pixels.as_chunks_mut::<4>().0 {
         let r = px[0] as u16;
         let g = px[1] as u16;
         let b = px[2] as u16;

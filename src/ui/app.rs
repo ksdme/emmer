@@ -193,7 +193,7 @@ impl LayerShellHandler for App {
         // Update the anchors.
         let (w, h) = configure.new_size;
         self.anchor = self.config.anchor(w as f64, h as f64);
-        self.stack.set_anchor(self.anchor.clone());
+        self.stack.set_anchor(self.anchor);
 
         // The surface has to be redrawn at the new size. If a frame callback is
         // already in flight, it picks this up, otherwise, draw right away since
@@ -426,7 +426,7 @@ impl App {
             .context("Could not bind for zwlr_layer_shell_v1 events")?;
 
         let (w, h) = (config.width + 2. * config.margin.x, 0);
-        let anchor = config.anchor(w as f64, 0.);
+        let anchor = config.anchor(w, 0.);
 
         let surface = compositor_state.create_surface(&q_handle);
         let layer_surface = layer_shell.create_layer_surface(
@@ -486,7 +486,7 @@ impl App {
                 buffer_pool,
 
                 config: config.clone(),
-                anchor: anchor.clone(),
+                anchor: anchor,
 
                 stack: Stack::new(config, anchor),
                 stack_hovering: false,

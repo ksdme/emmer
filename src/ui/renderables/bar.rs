@@ -1,41 +1,35 @@
 use anyhow::{Context, Result};
 
 use crate::{
-    config::{ComputedConfig, Insets},
-    ui::renderables::{Color, Rect, Renderable, Size, card, rounded_sub_path, text},
+    config::{BarTheme, ComputedConfig},
+    ui::renderables::{Rect, Renderable, Size, card, rounded_sub_path, text},
 };
-
-const RADIUS: f64 = 4.;
 
 /// Renders the dismiss-all bar, which shows the count of the notifications and
 /// a control to clear all of them.
 #[derive(Debug)]
 pub struct Bar {
     width: f64,
-    padding: Insets,
+    theme: BarTheme,
 
     count_r: text::Text,
     clear_r: text::Text,
 }
 
 impl Bar {
-    pub fn new(config: &ComputedConfig, count: usize, padding: Insets) -> Self {
+    pub fn new(config: &ComputedConfig, count: usize) -> Self {
+        let theme = config.theme.bar.clone();
         let text = |label: &str| {
-            text::Text::new(
-                &config.theme.font_map,
-                &config.theme.body_font_description,
-                None,
-                Some(-1),
-                label,
-            )
+            text::Text::new(&config.font_map, &theme.label.font, None, Some(-1), label)
         };
 
         Self {
             width: config.width,
-            padding,
 
             count_r: text(&format!("{count} Notifications")),
             clear_r: text("Clear"),
+
+            theme,
         }
     }
 
@@ -43,7 +37,7 @@ impl Bar {
     /// into rect.
     pub fn clear_rect(&self, rect: Rect) -> Rect {
         Rect {
-            x1: rect.x2 - 2. * self.padding.x - self.clear_r.measure().w,
+            x1: rect.x2 - 2. * self.theme.surface.padding.x - self.clear_r.measure().w,
             ..rect
         }
     }
@@ -57,27 +51,19 @@ impl Renderable for Bar {
         let clear = self.clear_r.measure();
         Size {
             w: self.width,
-            h: 2. * self.padding.y + count.h.max(clear.h),
+            h: 2. * self.theme.surface.padding.y + count.h.max(clear.h),
         }
     }
 
     fn paint(&self, cr: &cairo::Context, rect: Rect, style: &Style) -> Result<()> {
-        let border = Color::from_rgba_u8(102, 102, 102, style.opacity);
+        let surface = &self.theme.surface;
+        let border = surface.border_color.faded(style.opacity);
         let fg = text::Style {
-            color: Color::from_rgba_u8(255, 255, 255, style.opacity),
+            color: self.theme.label.color.faded(style.opacity),
         };
 
-        card::paint(
-            cr,
-            rect,
-            &card::Style {
-                bg: Color::from_rgba_u8(52, 52, 52, style.opacity),
-                border_width: 1.,
-                border_color: border,
-                border_radius: RADIUS,
-            },
-        )
-        .context("Could not draw box")?;
+        card::paint(cr, rect, &card::Style::from_surface(surface, style.opacity))
+            .context("Could not draw box")?;
 
         // The hover tint on the clear control, which is clipped to the rounded
         // shape of the bar.
@@ -86,7 +72,14 @@ impl Renderable for Bar {
             // TODO: This is not the ideal way of doing this.
             cr.save().context("Could not save the cairo state")?;
             cr.new_path();
-            rounded_sub_path(cr, rect.x1, rect.y1, rect.w(), rect.h(), RADIUS);
+            rounded_sub_path(
+                cr,
+                rect.x1,
+                rect.y1,
+                rect.w(),
+                rect.h(),
+                surface.border_radius,
+            );
             cr.clip();
 
             cr.rectangle(clear.x1, clear.y1, clear.w(), clear.h());
@@ -109,7 +102,7 @@ impl Renderable for Bar {
             .paint(
                 cr,
                 Rect::from_origin(
-                    rect.x1 + self.padding.x,
+                    rect.x1 + surface.padding.x,
                     rect.y1 + (rect.h() - count.h) / 2.,
                     count,
                 ),
@@ -122,7 +115,7 @@ impl Renderable for Bar {
             .paint(
                 cr,
                 Rect::from_origin(
-                    clear.x1 + self.padding.x,
+                    clear.x1 + surface.padding.x,
                     rect.y1 + (rect.h() - size.h) / 2.,
                     size,
                 ),

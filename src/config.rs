@@ -1,6 +1,9 @@
 use pango::FontDescription;
 
-use crate::ui::anchors::{Anchor, HorizontalAnchor, VerticalAnchor};
+use crate::ui::{
+    anchors::{Anchor, HorizontalAnchor, VerticalAnchor},
+    renderables::Color,
+};
 
 #[derive(Debug, Clone)]
 pub struct Insets {
@@ -36,20 +39,171 @@ pub struct SpreadConfig {
     pub max_count: usize,
 }
 
-#[derive(Debug)]
-pub struct ThemeConfig {
-    /// The font description of the title.
-    /// https://docs.gtk.org/Pango/type_func.FontDescription.from_string.html#description
-    pub title_font_description: String,
+/// The theme of a box shaped surface.
+#[derive(Debug, Clone)]
+pub struct SurfaceTheme {
+    /// The color the surface is filled with.
+    pub background: Color,
 
-    /// The font description of the body.
-    /// https://docs.gtk.org/Pango/type_func.FontDescription.from_string.html#description
-    pub body_font_description: String,
+    /// The width of the border, a zero width disables the border.
+    pub border_width: f64,
+
+    /// The color of the border.
+    pub border_color: Color,
+
+    /// The radius of the corners.
+    pub border_radius: f64,
+
+    /// The space between the edges of the surface and its contents.
+    pub padding: Insets,
 }
 
-// TODO: Support padding.
+/// The theme of a piece of text.
+#[derive(Debug, Clone)]
+pub struct TextTheme {
+    /// The font of the text.
+    /// https://docs.gtk.org/Pango/type_func.FontDescription.from_string.html#description
+    pub font: FontDescription,
+
+    /// The color of the text.
+    pub color: Color,
+}
+
+impl TextTheme {
+    pub fn new(font: &str, color: Color) -> Self {
+        Self {
+            font: FontDescription::from_string(font),
+            color,
+        }
+    }
+}
+
+/// The theme of a notification card.
+#[derive(Debug, Clone)]
+pub struct NotificationTheme {
+    /// The theme of the card itself.
+    pub surface: SurfaceTheme,
+
+    /// The theme of the title.
+    pub title: TextTheme,
+
+    /// The theme of the body.
+    pub body: TextTheme,
+
+    /// The theme of the app name and the time in the footer.
+    pub meta: TextTheme,
+
+    /// The radius of the corners of the image, which is capped to a third of
+    /// the height of the image.
+    pub image_radius: f64,
+
+    /// The gap between the image and the text.
+    pub image_gap: f64,
+
+    /// The gap between the title and the body.
+    pub title_gap: f64,
+
+    /// The gap between the contents and the footer.
+    pub meta_gap: f64,
+}
+
+/// The theme of an action button.
+#[derive(Debug, Clone)]
+pub struct ButtonTheme {
+    /// The theme of the button itself.
+    pub surface: SurfaceTheme,
+
+    /// The theme of the label.
+    pub label: TextTheme,
+
+    /// The gap between the buttons and from the notification card.
+    pub gap: f64,
+}
+
+/// The theme of the dismiss-all bar.
+#[derive(Debug, Clone)]
+pub struct BarTheme {
+    /// The theme of the bar itself.
+    pub surface: SurfaceTheme,
+
+    /// The theme of the labels.
+    pub label: TextTheme,
+}
+
+#[derive(Debug)]
+pub struct ThemeConfig {
+    /// The theme of the notification cards.
+    pub notification: NotificationTheme,
+
+    /// The theme of the action buttons.
+    pub button: ButtonTheme,
+
+    /// The theme of the dismiss-all bar.
+    pub bar: BarTheme,
+}
+
+impl Default for ThemeConfig {
+    fn default() -> Self {
+        let font = "JetBrainsMono Nerd Font Mono 10";
+        let bold_font = "JetBrainsMono Nerd Font Mono Bold 10";
+
+        let background = Color::from_rgba_u8(52, 52, 52, 1.);
+        let border_color = Color::from_rgba_u8(102, 102, 102, 1.);
+        let text_color = Color::from_rgba_u8(255, 255, 255, 1.);
+
+        let text = TextTheme::new(font, text_color);
+
+        Self {
+            notification: NotificationTheme {
+                surface: SurfaceTheme {
+                    background,
+                    border_width: 1.5,
+                    border_color,
+                    border_radius: 8.,
+                    padding: Insets { x: 12., y: 12. },
+                },
+
+                title: TextTheme::new(bold_font, text_color),
+                body: text.clone(),
+                meta: TextTheme::new(font, text_color.with_alpha(0.35)),
+
+                image_radius: 6.,
+
+                image_gap: 8.,
+                title_gap: 8.,
+                meta_gap: 6.,
+            },
+
+            button: ButtonTheme {
+                surface: SurfaceTheme {
+                    background,
+                    border_width: 1.,
+                    border_color,
+                    border_radius: 4.,
+                    padding: Insets { x: 16., y: 8. },
+                },
+
+                label: text.clone(),
+
+                gap: 8.,
+            },
+
+            bar: BarTheme {
+                surface: SurfaceTheme {
+                    background,
+                    border_width: 1.,
+                    border_color,
+                    border_radius: 4.,
+                    padding: Insets { x: 12., y: 6. },
+                },
+
+                label: text,
+            },
+        }
+    }
+}
+
 // TODO: Support spread on stack.
-// TODO: Support font sizes.
 /// Represents the global application configuration.
 #[derive(Debug)]
 pub struct Config {
@@ -58,9 +212,6 @@ pub struct Config {
 
     /// The margin around the cards.
     pub margin: Insets,
-
-    /// The padding inside the cards.
-    pub padding: Insets,
 
     /// The configuration of the notification stack.
     pub stack: StackConfig,
@@ -72,19 +223,24 @@ pub struct Config {
     pub theme: ThemeConfig,
 }
 
-#[derive(Debug)]
-pub struct Theme {
-    pub font_map: pango::FontMap,
-    pub title_font_description: FontDescription,
-    pub body_font_description: FontDescription,
-}
-
-impl From<ThemeConfig> for Theme {
-    fn from(config: ThemeConfig) -> Self {
+impl Default for Config {
+    fn default() -> Self {
         Self {
-            font_map: pangocairo::FontMap::default(),
-            title_font_description: FontDescription::from_string(&config.title_font_description),
-            body_font_description: FontDescription::from_string(&config.body_font_description),
+            width: 320.,
+            margin: Insets { x: 32., y: 32. },
+
+            stack: StackConfig {
+                peek: 8.,
+                inset: 8.,
+                max_count: 3,
+            },
+
+            spread: SpreadConfig {
+                gap: 8.,
+                max_count: 20,
+            },
+
+            theme: ThemeConfig::default(),
         }
     }
 }
@@ -96,14 +252,14 @@ pub struct ComputedConfig {
 
     pub width: f64,
     pub margin: Insets,
-    pub padding: Insets,
 
     pub anchors: (HorizontalAnchor, VerticalAnchor),
 
     pub stack: StackConfig,
     pub spread: SpreadConfig,
 
-    pub theme: Theme,
+    pub theme: ThemeConfig,
+    pub font_map: pango::FontMap,
 }
 
 impl ComputedConfig {
@@ -115,12 +271,12 @@ impl ComputedConfig {
 
             width: config.width,
             margin: config.margin,
-            padding: config.padding,
 
             stack: config.stack,
             spread: config.spread,
 
-            theme: Theme::from(config.theme),
+            theme: config.theme,
+            font_map: pangocairo::FontMap::default(),
         }
     }
 

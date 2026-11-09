@@ -7,7 +7,7 @@ use anyhow::{Context, Result};
 use smithay_client_toolkit::seat::pointer::{CursorIcon, PointerEvent};
 
 use crate::{
-    config::{ComputedConfig, Insets},
+    config::ComputedConfig,
     transitionable,
     ui::{
         items::{layout::Layout, stack::AppCommand},
@@ -36,13 +36,14 @@ pub struct Bar {
     visual: AnimatedTarget,
     // The hover tint on the clear control.
     light: Animated<f64>,
+
     hovering_clear: bool,
 }
 
 impl Bar {
     pub fn new(config: Rc<ComputedConfig>) -> Self {
         Self {
-            bar_r: bar::Bar::new(&config, 0, Insets { x: 12., y: 6. }),
+            bar_r: bar::Bar::new(&config, 0),
             config,
 
             count: 0,
@@ -72,7 +73,7 @@ impl Bar {
     pub fn set_count(&mut self, count: usize, now: Instant) {
         // The label is kept while hiding so that it does not change as it fades.
         if count > 1 && count != self.count {
-            self.bar_r = bar::Bar::new(&self.config, count, Insets { x: 12., y: 6. });
+            self.bar_r = bar::Bar::new(&self.config, count);
         }
         self.count = count;
 

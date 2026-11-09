@@ -1,6 +1,9 @@
 use anyhow::{Context, Result};
 
-use crate::ui::renderables::{Color, Rect, rounded_sub_path};
+use crate::{
+    config::SurfaceTheme,
+    ui::renderables::{Color, Rect, rounded_sub_path},
+};
 
 /// The style of a generic box.
 #[derive(Debug, Default, Clone, Copy)]
@@ -9,6 +12,18 @@ pub struct Style {
     pub border_width: f64,
     pub border_color: Color,
     pub border_radius: f64,
+}
+
+impl Style {
+    /// Returns the style of a surface faded by opacity.
+    pub fn from_surface(surface: &SurfaceTheme, opacity: f64) -> Self {
+        Self {
+            bg: surface.background.faded(opacity),
+            border_width: surface.border_width,
+            border_color: surface.border_color.faded(opacity),
+            border_radius: surface.border_radius,
+        }
+    }
 }
 
 /// Paints a generic box filling the rect.

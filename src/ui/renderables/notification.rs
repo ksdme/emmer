@@ -1,11 +1,11 @@
 use anyhow::{Context, Result};
 
 use crate::{
-    config::{ComputedConfig, Insets},
+    config::{ComputedConfig, NotificationTheme, TextTheme},
     dbus, logged,
     ui::{
         anchors::VerticalAnchor,
-        renderables::{Color, Rect, Renderable, Size, card, image, text},
+        renderables::{Rect, Renderable, Size, card, image, text},
     },
 };
 
@@ -13,7 +13,7 @@ use crate::{
 #[derive(Debug)]
 pub struct Notification {
     width: f64,
-    padding: Insets,
+    theme: NotificationTheme,
 
     // The edge the contents stick to when they are clipped.
     clip_anchor: VerticalAnchor,
@@ -35,60 +35,42 @@ impl Notification {
         body: Option<&str>,
         created_at: Option<&str>,
     ) -> Result<Self> {
+        let theme = config.theme.notification.clone();
+        let padding = &theme.surface.padding;
+
         let image_r = if let Some(image) = image {
-            logged!(image::Image::new(image).context("Could not initialize image")).ok()
+            logged!(
+                image::Image::new(image, theme.image_radius).context("Could not initialize image")
+            )
+            .ok()
         } else {
             None
         };
 
         let inner_w = (config.width
-            - (2. + if image_r.is_some() { 1. } else { 0. }) * config.padding.x
-            - image_r.as_ref().map(|r| r.measure().w).unwrap_or(0.)) as i32;
+            - 2. * padding.x
+            - image_r
+                .as_ref()
+                .map(|r| r.measure().w + theme.image_gap)
+                .unwrap_or(0.)) as i32;
+
+        let text = |font: &pango::FontDescription, max_w, max_h, content: &str| {
+            text::Text::new(&config.font_map, font, max_w, max_h, content)
+        };
 
         Ok(Self {
             width: config.width,
-            padding: config.padding.clone(),
 
             clip_anchor: VerticalAnchor::Top,
 
             image_r,
-            title_r: title.map(|title| {
-                text::Text::new(
-                    &config.theme.font_map,
-                    &config.theme.title_font_description,
-                    Some(inner_w),
-                    None,
-                    title,
-                )
-            }),
-            body_r: body.map(|body| {
-                text::Text::new(
-                    &config.theme.font_map,
-                    &config.theme.body_font_description,
-                    Some(inner_w),
-                    None,
-                    body,
-                )
-            }),
+            title_r: title.map(|title| text(&theme.title.font, Some(inner_w), None, title)),
+            body_r: body.map(|body| text(&theme.body.font, Some(inner_w), None, body)),
 
-            app_r: app.map(|app| {
-                text::Text::new(
-                    &config.theme.font_map,
-                    &config.theme.body_font_description,
-                    None,
-                    Some(-1),
-                    app,
-                )
-            }),
-            created_at_r: created_at.map(|created| {
-                text::Text::new(
-                    &config.theme.font_map,
-                    &config.theme.body_font_description,
-                    None,
-                    Some(-1),
-                    created,
-                )
-            }),
+            app_r: app.map(|app| text(&theme.meta.font, None, Some(-1), app)),
+            created_at_r: created_at.map(|created| text(&theme.meta.font, None, Some(-1), created)),
+
+            theme,
         })
     }
 
@@ -103,7 +85,13 @@ impl Notification {
         let body_h = self.body_r.as_ref().map(|r| r.measure().h).unwrap_or(0.);
         let image_h = self.image_r.as_ref().map(|r| r.measure().h).unwrap_or(0.);
 
-        image_h.max(title_h + body_h + if title_h > 0. && body_h > 0. { 8. } else { 0. })
+        let title_gap = if title_h > 0. && body_h > 0. {
+            self.theme.title_gap
+        } else {
+            0.
+        };
+
+        image_h.max(title_h + body_h + title_gap)
     }
 
     // Height contributed by the non core contents.
@@ -122,7 +110,13 @@ impl Notification {
     fn inner_height(&self) -> f64 {
         let m_h = self.meta_height();
         let c_h = self.content_height();
-        c_h + m_h + if c_h > 0. && m_h > 0. { 6. } else { 0. }
+        let meta_gap = if c_h > 0. && m_h > 0. {
+            self.theme.meta_gap
+        } else {
+            0.
+        };
+
+        c_h + m_h + meta_gap
     }
 }
 
@@ -132,21 +126,19 @@ impl Renderable for Notification {
     fn measure(&self) -> Size {
         Size {
             w: self.width,
-            h: self.inner_height() + 2. * self.padding.y,
+            h: self.inner_height() + 2. * self.theme.surface.padding.y,
         }
     }
 
     fn paint(&self, cr: &cairo::Context, rect: Rect, style: &Style) -> Result<()> {
+        let theme = &self.theme;
+        let padding = &theme.surface.padding;
+
         // The base.
         card::paint(
             cr,
             rect,
-            &card::Style {
-                bg: Color::from_rgba_u8(52, 52, 52, style.outer_opacity),
-                border_width: 1.5,
-                border_color: Color::from_rgba_u8(102, 102, 102, style.outer_opacity),
-                border_radius: 8.,
-            },
+            &card::Style::from_surface(&theme.surface, style.outer_opacity),
         )
         .context("Could not draw block")?;
 
@@ -155,25 +147,25 @@ impl Renderable for Notification {
                 .context("Could not save the current cairo state for clipping")?;
 
             let content_h = self.inner_height();
-            let avail_w = rect.w() - 2. * self.padding.x;
-            let avail_h = rect.h() - 2. * self.padding.y;
+            let avail_w = rect.w() - 2. * padding.x;
+            let avail_h = rect.h() - 2. * padding.y;
 
-            let content_x = rect.x1 + self.padding.x;
+            let content_x = rect.x1 + padding.x;
             let content_y = if content_h > avail_h {
                 // Clip the extra content.
-                cr.rectangle(content_x, rect.y1 + self.padding.y, avail_w, avail_h);
+                cr.rectangle(content_x, rect.y1 + padding.y, avail_w, avail_h);
                 cr.clip();
 
                 // Since the clip is a fixed window, the easiest way to anchor content is to
                 // do it using an offset.
                 rect.y1
-                    + self.padding.y
+                    + padding.y
                     + match self.clip_anchor {
                         VerticalAnchor::Top => 0.,
                         VerticalAnchor::Bottom => -(content_h - avail_h),
                     }
             } else {
-                rect.y1 + self.padding.y
+                rect.y1 + padding.y
             };
 
             // The image/icon.
@@ -190,7 +182,7 @@ impl Renderable for Notification {
                         )
                         .context("Could not draw image")
                 ) {
-                    Ok(()) => content_x + size.w + 8.,
+                    Ok(()) => content_x + size.w + theme.image_gap,
                     Err(_) => content_x,
                 }
             } else {
@@ -198,19 +190,20 @@ impl Renderable for Notification {
             };
 
             cr.new_path();
-            let fg = text::Style {
-                color: Color::from_rgba_u8(255, 255, 255, style.inner_opacity),
-            };
-            let meta = text::Style {
-                color: fg.color.with_alpha(style.inner_opacity * 0.35),
+            let text_style = |text: &TextTheme| text::Style {
+                color: text.color.faded(style.inner_opacity),
             };
 
             // The title.
             let content_y = match &self.title_r {
                 Some(title) => {
                     let size = title.measure();
-                    title.paint(cr, Rect::from_origin(content_x, content_y, size), &fg)?;
-                    content_y + size.h + 8.
+                    title.paint(
+                        cr,
+                        Rect::from_origin(content_x, content_y, size),
+                        &text_style(&theme.title),
+                    )?;
+                    content_y + size.h + theme.title_gap
                 }
                 None => content_y,
             };
@@ -220,7 +213,7 @@ impl Renderable for Notification {
                 body.paint(
                     cr,
                     Rect::from_origin(content_x, content_y, body.measure()),
-                    &fg,
+                    &text_style(&theme.body),
                 )?;
             }
 
@@ -229,12 +222,8 @@ impl Renderable for Notification {
                 let size = app_r.measure();
                 app_r.paint(
                     cr,
-                    Rect::from_origin(
-                        rect.x1 + self.padding.x,
-                        rect.y2 - self.padding.y - size.h,
-                        size,
-                    ),
-                    &meta,
+                    Rect::from_origin(rect.x1 + padding.x, rect.y2 - padding.y - size.h, size),
+                    &text_style(&theme.meta),
                 )?;
             }
 
@@ -243,11 +232,11 @@ impl Renderable for Notification {
                 created_at_r.paint(
                     cr,
                     Rect::from_origin(
-                        rect.x2 - self.padding.x - size.w,
-                        rect.y2 - self.padding.y - size.h,
+                        rect.x2 - padding.x - size.w,
+                        rect.y2 - padding.y - size.h,
                         size,
                     ),
-                    &meta,
+                    &text_style(&theme.meta),
                 )?;
             }
 

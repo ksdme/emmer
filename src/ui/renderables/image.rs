@@ -12,10 +12,12 @@ pub struct Image {
 }
 
 impl Image {
-    /// Builds the instance of the renderable from the decoded dbus image.
-    pub fn new(image: dbus::image::Image) -> Result<Self> {
+    /// Builds the instance of the renderable from the decoded dbus image with
+    /// its corners rounded by radius.
+    pub fn new(image: dbus::image::Image, radius: f64) -> Result<Self> {
         Ok(Self {
-            surface: rounded_surface(image).context("Could not create surface from image")?,
+            surface: rounded_surface(image, radius)
+                .context("Could not create surface from image")?,
         })
     }
 }
@@ -48,7 +50,7 @@ pub struct Style {
 }
 
 // Creates a cairo surface from the image with its corners rounded.
-fn rounded_surface(image: dbus::image::Image) -> Result<cairo::ImageSurface> {
+fn rounded_surface(image: dbus::image::Image, radius: f64) -> Result<cairo::ImageSurface> {
     let scaled_w = image.width;
     let scaled_h = image.height;
 
@@ -78,7 +80,7 @@ fn rounded_surface(image: dbus::image::Image) -> Result<cairo::ImageSurface> {
             scaled_w as f64,
             scaled_h as f64,
             // Otherwise, narrow images have awkward full rounded corners.
-            (scaled_h as f64 / 3.).min(6.),
+            (scaled_h as f64 / 3.).min(radius),
         );
         cr.clip();
 

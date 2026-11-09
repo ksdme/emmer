@@ -10,7 +10,7 @@ use wayland_client::Connection;
 use zbus::{connection, object_server::SignalEmitter};
 
 use crate::{
-    config::{ComputedConfig, Config, Insets, SpreadConfig, StackConfig, ThemeConfig},
+    config::{ComputedConfig, Config},
     dbus::service::{NotificationService, ServerMessage},
     ui::app::{App, UIMessage},
 };
@@ -80,27 +80,7 @@ fn run_ui(
     ui_rx: channel::Channel<UIMessage>,
     server_tx: tokio::sync::mpsc::UnboundedSender<ServerMessage>,
 ) -> Result<()> {
-    let config = ComputedConfig::new(
-        args.debug_mode,
-        Config {
-            margin: Insets { x: 32., y: 32. },
-            padding: Insets { x: 12., y: 12. },
-            spread: SpreadConfig {
-                gap: 8.,
-                max_count: 20,
-            },
-            stack: StackConfig {
-                peek: 8.,
-                inset: 8.,
-                max_count: 3,
-            },
-            theme: ThemeConfig {
-                title_font_description: "JetBrainsMono Nerd Font Mono Bold 10".to_string(),
-                body_font_description: "JetBrainsMono Nerd Font Mono 10".to_string(),
-            },
-            width: 320.,
-        },
-    );
+    let config = ComputedConfig::new(args.debug_mode, Config::default());
 
     let conn = Connection::connect_to_env().context("Could not connect to wayland")?;
     let (mut app, event_queue) = ui::app::App::init(config, &conn, server_tx)

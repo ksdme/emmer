@@ -40,6 +40,11 @@ impl Color {
             a,
         }
     }
+
+    /// Returns the color with its alpha scaled by opacity.
+    pub fn faded(&self, opacity: f64) -> Color {
+        self.with_alpha(self.a * opacity)
+    }
 }
 
 /// Represents the intrinsic size of a renderable.

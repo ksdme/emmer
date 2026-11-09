@@ -1,30 +1,33 @@
 use anyhow::{Context, Result};
 
 use crate::{
-    config::{ComputedConfig, Insets},
-    ui::renderables::{Color, Rect, Renderable, Size, card, text},
+    config::{ButtonTheme, ComputedConfig},
+    ui::renderables::{Rect, Renderable, Size, card, text},
 };
 
 /// Represents a generic button.
 #[derive(Debug)]
 pub struct Button {
-    padding: Insets,
+    theme: ButtonTheme,
 
     label_r: text::Text,
 }
 
 impl Button {
-    pub fn new(config: &ComputedConfig, label: &str, padding: Insets, max_w: Option<i32>) -> Self {
+    pub fn new(config: &ComputedConfig, label: &str, max_w: Option<i32>) -> Self {
+        let theme = config.theme.button.clone();
+        let padding = &theme.surface.padding;
+
         Self {
             label_r: text::Text::new(
-                &config.theme.font_map,
-                &config.theme.body_font_description,
+                &config.font_map,
+                &theme.label.font,
                 max_w.map(|w| w - (2. * padding.x) as i32),
                 Some(-1),
                 label,
             ),
 
-            padding,
+            theme,
         }
     }
 }
@@ -33,36 +36,31 @@ impl Renderable for Button {
     type Style = Style;
 
     fn measure(&self) -> Size {
+        let padding = &self.theme.surface.padding;
         let label = self.label_r.measure();
         Size {
-            w: 2. * self.padding.x + label.w,
-            h: 2. * self.padding.y + label.h,
+            w: 2. * padding.x + label.w,
+            h: 2. * padding.y + label.h,
         }
     }
 
     fn paint(&self, cr: &cairo::Context, rect: Rect, style: &Style) -> Result<()> {
-        card::paint(
-            cr,
-            rect,
-            &card::Style {
-                bg: Color::from_rgba_u8(52, 52, 52, style.opacity).with_lightness(style.light),
-                border_width: 1.,
-                border_color: Color::from_rgba_u8(102, 102, 102, style.opacity),
-                border_radius: 4.,
-            },
-        )
-        .context("Could not draw background")?;
+        let surface = &self.theme.surface;
+
+        let mut box_style = card::Style::from_surface(surface, style.opacity);
+        box_style.bg = box_style.bg.with_lightness(style.light);
+        card::paint(cr, rect, &box_style).context("Could not draw background")?;
 
         self.label_r
             .paint(
                 cr,
                 Rect::from_origin(
-                    rect.x1 + self.padding.x,
-                    rect.y1 + self.padding.y,
+                    rect.x1 + surface.padding.x,
+                    rect.y1 + surface.padding.y,
                     self.label_r.measure(),
                 ),
                 &text::Style {
-                    color: Color::from_rgba_u8(255, 255, 255, style.opacity),
+                    color: self.theme.label.color.faded(style.opacity),
                 },
             )
             .context("Could not draw label")

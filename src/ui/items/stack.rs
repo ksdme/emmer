@@ -513,7 +513,20 @@ impl Stack {
             let _ = cx.stroke();
         }
 
-        self.bounds = full_bounds;
+        // While the stack is spread, the pointer is interacting with it, so its
+        // bounds are not allowed to shrink vertically. Otherwise, the items
+        // being dismissed could pull the input region out from under a pointer
+        // that has not moved and end the interaction. Leaving horizontally
+        // still ends it, after which the bounds can shrink.
+        self.bounds = match (self.presentation, self.bounds, full_bounds) {
+            (Presentation::Spread, Some(held), Some(bounds)) => Some(Rect {
+                y1: held.y1.min(bounds.y1),
+                y2: held.y2.max(bounds.y2),
+                ..bounds
+            }),
+            _ => full_bounds,
+        };
+
         Ok(settled)
     }
 

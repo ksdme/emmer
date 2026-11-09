@@ -91,6 +91,27 @@ impl Rect {
         }
     }
 
+    /// Returns the rect moved by (dx, dy).
+    pub fn translate(&self, dx: f64, dy: f64) -> Rect {
+        Rect {
+            x1: self.x1 + dx,
+            y1: self.y1 + dy,
+            x2: self.x2 + dx,
+            y2: self.y2 + dy,
+        }
+    }
+
+    /// Returns the overlap between both the rects, if there is any.
+    pub fn intersection(&self, other: &Rect) -> Option<Rect> {
+        let rect = Rect {
+            x1: self.x1.max(other.x1),
+            y1: self.y1.max(other.y1),
+            x2: self.x2.min(other.x2),
+            y2: self.y2.min(other.y2),
+        };
+        (rect.x1 < rect.x2 && rect.y1 < rect.y2).then_some(rect)
+    }
+
     /// Returns a boolean indicating if the (x, y) is on or within the rect.
     #[inline]
     pub fn contains(&self, at: (f64, f64)) -> bool {

@@ -13,7 +13,7 @@ use crate::{
     ui::{
         anchors::{Anchor, VerticalAnchor},
         items::{Item, bar::Bar, layout::Layout},
-        renderables::Rect,
+        renderables::{Animated, Easing, Rect, Timing},
     },
 };
 
@@ -81,6 +81,11 @@ pub struct Stack {
     bar: Bar,
     items: BTreeMap<u32, Item>,
 
+    // The distance by which the spread items are scrolled away from the far
+    // edge, and the furthest they can be scrolled.
+    scroll: Animated<f64>,
+    overflow: f64,
+
     bounds: Option<Rect>,
     hovering: Option<u32>,
 }
@@ -97,6 +102,9 @@ impl Stack {
             anchor,
             presentation: Presentation::Stacked,
 
+            scroll: Animated::new(0.),
+            overflow: 0.,
+
             bounds: None,
             hovering: None,
         }
@@ -112,8 +120,8 @@ impl Stack {
     }
 
     // TODO: This needs to be as efficient as possible.
-    /// Finds an item that is at (x, y) visual position on this stack.
-    pub fn find_at_mut(&mut self, at: (f64, f64)) -> Option<&mut Item> {
+    // Finds an item that is at (x, y) position in the unscrolled layout.
+    fn find_at_mut(&mut self, at: (f64, f64)) -> Option<&mut Item> {
         for el in self.items.values_mut().rev() {
             if let Some(hitbox) = el.target() {
                 // Given that values are sorted, we can abort as soon as we
@@ -136,6 +144,48 @@ impl Stack {
 
     fn bar_hit(&self, at: (f64, f64)) -> bool {
         self.bar.target().is_some_and(|target| target.contains(at))
+    }
+
+    // The vertical translation that a scroll by distance applies to the items.
+    fn scroll_offset(&self, distance: f64) -> f64 {
+        match self.anchor.vertical {
+            VerticalAnchor::Top => -distance,
+            VerticalAnchor::Bottom => distance,
+        }
+    }
+
+    // The region of the layer that the items scrolled by distance remain visible
+    // in, which keeps them from running into the bar and the anchored margin.
+    fn viewport(&self, distance: f64) -> Option<Rect> {
+        if distance <= 0. {
+            return None;
+        }
+
+        let origin = self.config.margin.y + self.bar.push();
+        let w = self.anchor.layer_width;
+        let h = (self.anchor.layer_height - origin).max(0.);
+        Some(match self.anchor.vertical {
+            VerticalAnchor::Top => Rect::from_xywh(0., origin, w, h),
+            VerticalAnchor::Bottom => Rect::from_xywh(0., 0., w, h),
+        })
+    }
+
+    // Maps a pointer event on the layer onto the unscrolled layout, if it lands
+    // where the items are visible.
+    fn content_event(&self, event: &PointerEvent) -> Option<PointerEvent> {
+        let scroll = self.scroll.target();
+        if self
+            .viewport(scroll)
+            .is_some_and(|v| !v.contains(event.position))
+        {
+            return None;
+        }
+
+        let (x, y) = event.position;
+        Some(PointerEvent {
+            position: (x, y - self.scroll_offset(scroll)),
+            ..event.clone()
+        })
     }
 
     // TODO: Lock the items.
@@ -232,6 +282,7 @@ impl Stack {
             presentation,
 
             margin_x: config.margin.x,
+            margin_y: config.margin.y,
             stack: &config.stack,
             spread: &config.spread,
 
@@ -257,6 +308,38 @@ impl Stack {
         for (item, target) in self.items.values_mut().rev().zip(targets) {
             item.set_target(target, now);
         }
+
+        self.overflow = layout.overflow(self.items.values().rev().map(Item::layout_input));
+        self.set_scroll(self.scroll.target().min(self.overflow), now);
+    }
+
+    fn set_scroll(&mut self, distance: f64, now: Instant) {
+        self.scroll.animate_to(
+            distance,
+            Timing::new(Duration::from_millis(120), Easing::EaseOutCubic),
+            now,
+        );
+    }
+
+    /// The handler for when a pointer scrolls vertically by delta within the
+    /// bounds of this stack.
+    pub fn on_scroll(&mut self, event: &PointerEvent, delta: f64) -> Vec<AppCommand> {
+        if self.presentation != Presentation::Spread {
+            return vec![];
+        }
+
+        // The items move against the delta, so scrolling towards the far edge
+        // reveals the items past it.
+        let scroll = (self.scroll.target() - self.scroll_offset(delta)).clamp(0., self.overflow);
+        if scroll == self.scroll.target() {
+            return vec![];
+        }
+        self.set_scroll(scroll, Instant::now());
+
+        // The items have moved under the pointer.
+        let mut commands = self.on_hover(event);
+        commands.push(AppCommand::Redraw);
+        commands
     }
 
     /// The handler for when a pointer is hovering within the bounds of this
@@ -277,9 +360,12 @@ impl Stack {
         let bar_commands = self.bar.on_leave();
 
         // Trigger on_hover on the current item.
-        let (hit, mut commands) = if let Some(item) = self.find_at_mut(event.position) {
+        let content = self.content_event(event);
+        let (hit, mut commands) = if let Some(content) = content.as_ref()
+            && let Some(item) = self.find_at_mut(content.position)
+        {
             let id = item.id();
-            let mut commands = item.on_hover(event);
+            let mut commands = item.on_hover(content);
 
             if self.set_presentation(Presentation::Spread) {
                 commands.push(AppCommand::Redraw);
@@ -326,8 +412,10 @@ impl Stack {
             };
         }
 
-        if let Some(item) = self.find_at_mut(event.position) {
-            let (mut commands, update_visual_states) = item.on_left_click(event);
+        if let Some(content) = self.content_event(event)
+            && let Some(item) = self.find_at_mut(content.position)
+        {
+            let (mut commands, update_visual_states) = item.on_left_click(&content);
 
             if update_visual_states {
                 self.update_visual_states();
@@ -347,8 +435,10 @@ impl Stack {
             return vec![];
         }
 
-        if let Some(item) = self.find_at_mut(event.position) {
-            let (mut commands, update_visual_states) = item.on_right_click(event);
+        if let Some(content) = self.content_event(event)
+            && let Some(item) = self.find_at_mut(content.position)
+        {
+            let (mut commands, update_visual_states) = item.on_right_click(&content);
 
             if update_visual_states {
                 self.update_visual_states();
@@ -366,15 +456,30 @@ impl Stack {
     pub fn render(&mut self, cx: &cairo::Context) -> Result<bool> {
         let now = Instant::now();
 
-        let mut settled = true;
+        let mut settled = self.scroll.tick(now);
         let mut full_bounds: Option<Rect> = None;
         let mut settled_dismissals = HashSet::<u32>::new();
+
+        // The items are laid out unscrolled, so they are shifted as a whole and
+        // clipped to the viewport while scrolled.
+        let offset = self.scroll_offset(self.scroll.get());
+        let viewport = self.viewport(self.scroll.get());
+
+        cx.save().context("Could not save the context")?;
+        if let Some(v) = viewport {
+            cx.rectangle(v.x1, v.y1, v.w(), v.h());
+            cx.clip();
+        }
+        cx.translate(0., offset);
 
         for (id, item) in self.items.iter_mut() {
             let item_settled = item.tick(now);
 
             // Render and update the scene bounds.
-            if let Some(bounds) = item.render(cx).context("Could not render item: {id}")? {
+            if let Some(bounds) = item.render(cx).context("Could not render item: {id}")?
+                && let bounds = bounds.translate(0., offset)
+                && let Some(bounds) = viewport.map_or(Some(bounds), |v| bounds.intersection(&v))
+            {
                 full_bounds = Some(full_bounds.map_or(bounds, |fb| fb.union(&bounds)));
             }
 
@@ -386,6 +491,7 @@ impl Stack {
 
             settled &= item_settled;
         }
+        cx.restore().context("Could not restore the context")?;
 
         if !settled_dismissals.is_empty() {
             self.items.retain(|id, _| !settled_dismissals.contains(id));

@@ -258,6 +258,15 @@ impl PointerHandler for App {
                         let commands = self.stack.on_hover(e);
                         let _ = self.handle_commands(commands, None);
                     }
+                    smithay_client_toolkit::seat::pointer::PointerEventKind::Axis {
+                        vertical,
+                        ..
+                    } if vertical.absolute != 0. => {
+                        log::trace!(target: "emmer::wl::pointer", "axis");
+
+                        let commands = self.stack.on_scroll(e, vertical.absolute);
+                        let _ = self.handle_commands(commands, None);
+                    }
                     _ => {}
                 }
             }

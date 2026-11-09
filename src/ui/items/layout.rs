@@ -46,6 +46,7 @@ pub struct Layout<'a> {
     pub presentation: Presentation,
 
     pub margin_x: f64,
+    pub margin_y: f64,
     pub stack: &'a StackConfig,
     pub spread: &'a SpreadConfig,
 
@@ -57,6 +58,25 @@ impl Layout<'_> {
     /// Returns the targets of the items, which are expected to be ordered from
     /// the newest to the oldest.
     pub fn targets(&self, items: impl IntoIterator<Item = Input>) -> Vec<Target> {
+        self.pass(items).0
+    }
+
+    /// Returns the distance by which the spread items run past the far margin
+    /// of the layer, which is how far they can be scrolled.
+    pub fn overflow(&self, items: impl IntoIterator<Item = Input>) -> f64 {
+        match self.presentation {
+            Presentation::Stacked => 0.,
+            Presentation::Spread => {
+                // The last spread item leaves a gap behind it for the next one.
+                let end = self.pass(items).1 - self.spread.gap;
+                (end - (self.anchor.layer_height - self.margin_y)).max(0.)
+            }
+        }
+    }
+
+    // Returns the targets of the items and the distance at which the next item
+    // would start.
+    fn pass(&self, items: impl IntoIterator<Item = Input>) -> (Vec<Target>, f64) {
         let max_count = match self.presentation {
             Presentation::Stacked => self.stack.max_count,
             Presentation::Spread => self.spread.max_count,
@@ -67,7 +87,7 @@ impl Layout<'_> {
         let mut d = self.origin;
         let mut no = 0;
 
-        items
+        let targets = items
             .into_iter()
             .map(|item| {
                 let shown = no < max_count && !item.dismissed;
@@ -84,7 +104,9 @@ impl Layout<'_> {
 
                 target
             })
-            .collect()
+            .collect();
+
+        (targets, d)
     }
 
     /// Returns the rect a new item should appear from, just outside the stack.
@@ -191,6 +213,7 @@ mod tests {
             anchor,
             presentation,
             margin_x: 32.,
+            margin_y: 32.,
             stack: &STACK,
             spread: &SPREAD,
             origin: 32.,
@@ -259,6 +282,20 @@ mod tests {
 
         assert_eq!(top[0].rect.y1, 32. - 80. - 8.);
         assert_eq!(bottom[0].rect.y1, 1000. - 32. + 8.);
+    }
+
+    #[test]
+    fn spread_overflows_past_the_far_margin() {
+        let anchor = anchor(VerticalAnchor::Bottom);
+        let layout = layout(&anchor, Presentation::Spread);
+
+        // 32 + 5 * 200 + 4 * 8 = 1064, against a far edge at 1000 - 32.
+        let items = [input(200., false); 5];
+        assert_eq!(layout.overflow(items), 1064. - 968.);
+
+        let items = [input(200., false), input(200., true)];
+        assert_eq!(layout.overflow(items), 0.);
+        assert_eq!(layout.overflow([]), 0.);
     }
 
     #[test]

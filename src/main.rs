@@ -17,6 +17,7 @@ use crate::{
 
 mod config;
 mod dbus;
+mod sound;
 mod ui;
 mod utils;
 

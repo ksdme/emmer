@@ -1,6 +1,14 @@
-use std::{sync::atomic::AtomicU32, time::Duration};
+use std::{
+    collections::HashMap,
+    path::PathBuf,
+    sync::{
+        Arc,
+        atomic::{AtomicBool, AtomicU32, Ordering},
+    },
+    time::Duration,
+};
 
-use anyhow::{Context, Error, Result, bail};
+use anyhow::{Context, Error, Result, anyhow, bail};
 use debug_ignore::DebugIgnore;
 use log::error;
 use smithay_client_toolkit::reexports::calloop::channel::{self};
@@ -15,7 +23,7 @@ use crate::{
         image,
         notification::{self, ImageData, ImageSource, Urgency},
     },
-    logged,
+    logged, sound,
     ui::app::UIMessage,
 };
 
@@ -50,6 +58,9 @@ pub struct NotificationService {
     // zbus dispatches method calls on its own executor, so, the tokio runtime
     // has to be reached through a handle for scheduling blocking work.
     runtime: tokio::runtime::Handle,
+    // Only one sound plays at a time, so that bursts of notifications do not pile
+    // their sounds on top of each other.
+    sound_busy: Arc<AtomicBool>,
 }
 
 impl NotificationService {
@@ -59,6 +70,7 @@ impl NotificationService {
             id_counter: AtomicU32::new(1),
             tx,
             runtime,
+            sound_busy: Arc::default(),
         }
     }
 
@@ -73,6 +85,50 @@ impl NotificationService {
         )
         .ok()
     }
+
+    // https://specifications.freedesktop.org/notification/latest-single/#hints
+    fn play_sound(&self, hints: &HashMap<String, zvariant::Value<'_>>) {
+        let string = |key: &str| {
+            hints
+                .get(key)
+                .and_then(|value| String::try_from(value).ok())
+                .filter(|value| !value.is_empty())
+        };
+
+        // Supress the sound.
+        let suppressed = hints
+            .get("suppress-sound")
+            .and_then(|value| bool::try_from(value).ok())
+            .unwrap_or(false);
+        if suppressed {
+            return;
+        }
+
+        // Do we have a source?
+        let file = string("sound-file");
+        let name = string("sound-name");
+        if file.is_none() && name.is_none() {
+            return;
+        }
+
+        // Set the devive busy.
+        if self.sound_busy.swap(true, Ordering::AcqRel) {
+            return;
+        }
+
+        let sound_busy = self.sound_busy.clone();
+        self.runtime.spawn_blocking(move || {
+            // A missing "sound-file" falls back to the "sound-name".
+            if let Some(path) = file
+                .and_then(|file| file_from_uri(&file).ok())
+                .or_else(|| name.and_then(|name| sound::find(&name)))
+            {
+                let _ = logged!(sound::play(&path).context("Could not play sound"));
+            }
+
+            sound_busy.store(false, Ordering::Release);
+        });
+    }
 }
 
 #[interface(name = "org.freedesktop.Notifications")]
@@ -85,7 +141,7 @@ impl NotificationService {
         summary: &str,
         body: &str,
         actions: Vec<String>,
-        hints: std::collections::HashMap<String, zvariant::Value<'_>>,
+        hints: HashMap<String, zvariant::Value<'_>>,
         expire_timeout: i32,
     ) -> u32 {
         let id = self
@@ -187,12 +243,18 @@ impl NotificationService {
                 error!("could not send push message: {err}");
                 0
             }
-            Ok(_) => id,
+            Ok(_) => {
+                // We are calling this from here instead of the other UI thread so
+                // we do not have to create another runtime on that thread, especially since
+                // it uses calloop.
+                self.play_sound(&hints);
+                id
+            }
         }
     }
 
     fn get_capabilities(&self) -> Vec<String> {
-        vec!["body".into(), "actions".into()]
+        vec!["body".into(), "actions".into(), "sound".into()]
     }
 
     fn get_server_information(&self) -> (String, String, String, String) {
@@ -272,20 +334,28 @@ fn image_from_data(data: &zvariant::Value) -> Result<ImageSource> {
 
 /// Constructs an image from the file:// uri.
 fn image_from_uri(uri: &str) -> Result<ImageSource> {
-    let uri = url::Url::parse(uri).context("Could not parse uri")?;
-    if uri.scheme() != "file" {
-        bail!("Unsupported scheme")
-    }
+    file_from_uri(uri).map(ImageSource::File)
+}
 
-    if let Ok(path) = uri.to_file_path() {
-        // Checking for the file here itself makes the fallback ladder at the
-        // call site simpler.
-        if !path.exists() || !path.is_file() {
-            bail!("Path does not exist or is not a file")
+/// Resolves a file:// uri, or an absolute path, into an existing file.
+fn file_from_uri(uri: &str) -> Result<PathBuf> {
+    let path = if uri.starts_with('/') {
+        PathBuf::from(uri)
+    } else {
+        let uri = url::Url::parse(uri).context("Could not parse uri")?;
+        if uri.scheme() != "file" {
+            bail!("Unsupported scheme")
         }
 
-        Ok(ImageSource::File(path))
-    } else {
-        bail!("Unsupported path")
+        uri.to_file_path()
+            .map_err(|_| anyhow!("Unsupported path"))?
+    };
+
+    // Checking for the file here itself makes the fallback ladders at the call
+    // sites simpler.
+    if !path.is_file() {
+        bail!("Path does not exist or is not a file")
     }
+
+    Ok(path)
 }

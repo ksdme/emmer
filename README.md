@@ -13,6 +13,7 @@ A Wayland notification daemon, inspired by [Sonner](https://sonner.emilkowal.ski
 - **Cairo / Pango** for rendering
 - **zbus** for the freedesktop Notifications D-Bus API
 - **Tokio** for async
+- **rodio** for notification sounds
 
 ## Pending
 
@@ -20,7 +21,6 @@ A Wayland notification daemon, inspired by [Sonner](https://sonner.emilkowal.ski
 - Configuration file fixes
 
 **Later**
-- Sounds and sound hints
 - Text alignment
 - Font parsing
 - Better theming

@@ -78,7 +78,7 @@ impl NotificationService {
     async fn decode_image(&self, source: ImageSource) -> Option<image::Image> {
         logged!(
             self.runtime
-                .spawn_blocking(move || image::decode(source, 64., Some(64.)))
+                .spawn_blocking(move || image::decode(source, 48., Some(48.)))
                 .await
                 .context("Could not join image decoder")
                 .and_then(|image| image.context("Could not decode image"))

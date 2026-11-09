@@ -1,14 +1,9 @@
 Current
-- Dismiss all button
 - Configuration file fixes
-- Dismiss goes too far down sometimes
 
 Pending
 - Text alignment looks weird
-- Scrolling spread
-- Sounds and sound hints
 - Font parsing is weird and hard.
-- Animation smoothing
 - Better thememing
 - Default configuration file
 - Markup text
@@ -16,7 +11,7 @@ Pending
 - Center the image
 - Multiple stacks
 - Rule based themeing
-- Pause auto dismiss clock when spread
+- How to handle multiple monitors?
 
 Tests
 - Clicking on notification should dismiss it and also activate the app
@@ -56,3 +51,13 @@ Done
 - Decode images off the UI thread
 - Cap frame rate (so we don't have missed frames)
     - Draw only on frame callbacks
+- Dismiss goes too far down sometimes
+    - Pure, direction-agnostic layout pass
+- Animation smoothing
+    - Independent per-field transition timelines with easing
+- Pause auto dismiss clock when spread
+- Dismiss all button
+    - Bar as its own component, pushing the layout origin
+- Scrolling spread
+- Sounds and sound hints
+    - Freedesktop sound theme lookup, played on its own thread with rodio

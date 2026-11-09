@@ -14,10 +14,14 @@ tasks:
     cmds:
       - notify-send "Short Message" "This is a short card." --icon file:///home/ksdme/me/emmer/data/rust.png
 
+  sound:
+    cmds:
+      - notify-send "Sound" "This notification plays a sound." -h string:sound-name:message-new-instant --icon file:///home/ksdme/me/emmer/data/rust.png
+
   flood:
     cmds:
       - |
-        for i in $(seq 1 5); do
+        for i in $(seq 1 15); do
           notify-send "Message" "This is the body of the notification." --icon file:///home/ksdme/me/emmer/data/rust.png;
-          sleep 0.5s;
+          sleep 0.25s;
         done

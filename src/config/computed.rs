@@ -11,6 +11,7 @@ use crate::{
 /// Represents a prepared configuration.
 #[derive(Debug)]
 pub struct ComputedConfig {
+    #[cfg_attr(not(debug_assertions), allow(dead_code))]
     pub debug_mode: bool,
 
     pub width: f64,

@@ -120,12 +120,17 @@ fn load_config(args: &Args) -> miette::Result<Config> {
 
 // Start the UI loop.
 fn run_ui(
-    args: &Args,
+    #[cfg_attr(not(debug_assertions), allow(unused_variables))] args: &Args,
     config: Config,
     ui_rx: channel::Channel<UIMessage>,
     server_tx: tokio::sync::mpsc::UnboundedSender<ServerMessage>,
 ) -> Result<()> {
-    let config = ComputedConfig::new(args.debug_mode, config);
+    #[cfg(debug_assertions)]
+    let debug_mode = args.debug_mode;
+    #[cfg(not(debug_assertions))]
+    let debug_mode = false;
+
+    let config = ComputedConfig::new(debug_mode, config);
 
     let conn = Connection::connect_to_env().context("Could not connect to wayland")?;
     let (mut app, event_queue) = ui::app::App::init(config, &conn, server_tx)

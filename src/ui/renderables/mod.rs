@@ -45,6 +45,36 @@ impl Color {
     pub fn faded(&self, opacity: f64) -> Color {
         self.with_alpha(self.a * opacity)
     }
+
+    /// Parses a #rrggbb or a #rrggbbaa hex color.
+    pub fn from_hex(hex: &str) -> Option<Self> {
+        let hex = hex.strip_prefix('#')?;
+        if !matches!(hex.len(), 6 | 8) || !hex.is_ascii() {
+            return None;
+        }
+
+        let channel = |i: usize| u8::from_str_radix(&hex[i..i + 2], 16).ok();
+        let a = if hex.len() == 8 { channel(6)? } else { 255 };
+        Some(Self::from_rgba_u8(
+            channel(0)?,
+            channel(2)?,
+            channel(4)?,
+            a as f64 / 255.,
+        ))
+    }
+
+    /// Returns the color as a #rrggbb hex, or as a #rrggbbaa hex if it is not opaque.
+    pub fn to_hex(self) -> String {
+        let [r, g, b, a] =
+            [self.r, self.g, self.b, self.a].map(|v| (v.clamp(0., 1.) * 255.).round() as u8);
+
+        let hex = format!("#{r:02x}{g:02x}{b:02x}");
+        if a == 255 {
+            hex
+        } else {
+            format!("{hex}{a:02x}")
+        }
+    }
 }
 
 /// Represents the intrinsic size of a renderable.

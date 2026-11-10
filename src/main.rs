@@ -1,7 +1,8 @@
-use std::{thread, time::Duration};
+use std::{path::PathBuf, thread, time::Duration};
 
 use anyhow::{Context, Result, anyhow};
 use clap::Parser;
+use miette::WrapErr;
 use smithay_client_toolkit::reexports::{
     calloop::{self, EventLoop, channel},
     calloop_wayland_source::WaylandSource,
@@ -22,18 +23,44 @@ mod ui;
 mod utils;
 
 #[derive(clap::Parser)]
-#[command(version, about, long_about = None)]
+#[command(version, about, long_about = None, args_conflicts_with_subcommands = true)]
 struct Args {
+    #[command(subcommand)]
+    command: Option<Command>,
+
+    /// The path to the config file. Defaults to $XDG_CONFIG_HOME/emmer/config.kdl
+    #[arg(short, long)]
+    config: Option<PathBuf>,
+
     /// Run the app in debug mode
     #[cfg(debug_assertions)]
     #[arg(long, default_value_t = false)]
     debug_mode: bool,
 }
 
+#[derive(clap::Subcommand)]
+enum Command {
+    /// Print the default config
+    DefaultConfig,
+}
+
 fn main() -> Result<()> {
     env_logger::init();
 
     let args = Args::parse();
+
+    if let Some(Command::DefaultConfig) = args.command {
+        print!("{}", Config::default().to_kdl());
+        return Ok(());
+    }
+
+    let config = match load_config(&args) {
+        Ok(config) => config,
+        Err(report) => {
+            eprintln!("{report:?}");
+            std::process::exit(1);
+        }
+    };
 
     let (startup_tx, startup_rx) = std::sync::mpsc::channel::<Result<()>>();
     let (ui_tx, ui_rx) = calloop::channel::channel::<UIMessage>();
@@ -65,7 +92,7 @@ fn main() -> Result<()> {
         .context("Could not start notification dbus service")?;
 
     // Start the UI on the main thread.
-    run_ui(&args, ui_rx, server_tx).context("Could not run ui")?;
+    run_ui(&args, config, ui_rx, server_tx).context("Could not run ui")?;
 
     service_thread
         .join()
@@ -74,13 +101,29 @@ fn main() -> Result<()> {
     Ok(())
 }
 
+// Reads the config file, falling back to the defaults if the default config file
+// does not exist.
+fn load_config(args: &Args) -> miette::Result<Config> {
+    let path = match &args.config {
+        Some(path) => path.clone(),
+        None => match config::default_path() {
+            Some(path) if path.exists() => path,
+            _ => return Ok(Config::default()),
+        },
+    };
+
+    log::info!("loading config from {}", path.display());
+    Config::load(&path).wrap_err_with(|| format!("Could not load config: {}", path.display()))
+}
+
 // Start the UI loop.
 fn run_ui(
     args: &Args,
+    config: Config,
     ui_rx: channel::Channel<UIMessage>,
     server_tx: tokio::sync::mpsc::UnboundedSender<ServerMessage>,
 ) -> Result<()> {
-    let config = ComputedConfig::new(args.debug_mode, Config::default());
+    let config = ComputedConfig::new(args.debug_mode, config);
 
     let conn = Connection::connect_to_env().context("Could not connect to wayland")?;
     let (mut app, event_queue) = ui::app::App::init(config, &conn, server_tx)

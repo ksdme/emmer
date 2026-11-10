@@ -15,22 +15,26 @@ A Wayland notification daemon, inspired by [Sonner](https://sonner.emilkowal.ski
 - **Tokio** for async
 - **rodio** for notification sounds
 
+## Configuration
+
+Emmer reads `$XDG_CONFIG_HOME/emmer/config.kdl`, or the file given with
+`--config`. Only the values that differ from the defaults need to be set. To
+start from the defaults, with each option documented:
+
+```sh
+emmer default-config > ~/.config/emmer/config.kdl
+```
+
 ## Pending
 
-**Current**
-- Configuration file fixes
-
-**Later**
 - Text alignment
-- Font parsing
-- Better theming
-- Default configuration file
 - Markup text
 - HiDPI
 - Center the image
 - Multiple stacks
 - Rule-based theming
 - Multiple monitors
+- Timeout values
 
 **Tests**
 - Clicking a notification should dismiss it and activate the app

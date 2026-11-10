@@ -1,17 +1,14 @@
 Current
-- Configuration file fixes
 
 Pending
 - Text alignment looks weird
-- Font parsing is weird and hard.
-- Better thememing
-- Default configuration file
 - Markup text
 - HiDPI
 - Center the image
 - Multiple stacks
 - Rule based themeing
 - How to handle multiple monitors?
+- Fix the timeout values
 
 Tests
 - Clicking on notification should dismiss it and also activate the app
@@ -61,3 +58,12 @@ Done
 - Scrolling spread
 - Sounds and sound hints
     - Freedesktop sound theme lookup, played on its own thread with rodio
+- Configuration file fixes
+    - KDL config file, with only the given values overriding the defaults
+    - Errors point at the offending node
+- Better thememing
+    - Shared colors and font that everything falls back to
+- Font parsing is weird and hard.
+    - Fonts are given as full pango font descriptions
+- Default configuration file
+    - `emmer default-config` prints it, with the docs as comments

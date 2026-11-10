@@ -53,6 +53,10 @@ settings! {
         /// The maximum number of notification cards that will be visible when the
         /// cards are spread out of the stack.
         pub max_count: usize,
+
+        /// The multiplier applied to the pointer scroll distance when the
+        /// spread cards are scrolled.
+        pub scroll_factor: f64,
     }
 
     pub struct TimeoutsConfig {
@@ -128,6 +132,7 @@ impl Default for GlobalConfig {
             spread: SpreadConfig {
                 gap: 8.,
                 max_count: 20,
+                scroll_factor: 2.,
             },
 
             timeouts: TimeoutsConfig {

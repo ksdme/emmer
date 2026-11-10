@@ -330,6 +330,7 @@ impl Stack {
 
         // The items move against the delta, so scrolling towards the far edge
         // reveals the items past it.
+        let delta = delta * self.config.spread.scroll_factor;
         let scroll = (self.scroll.target() - self.scroll_offset(delta)).clamp(0., self.overflow);
         if scroll == self.scroll.target() {
             return vec![];

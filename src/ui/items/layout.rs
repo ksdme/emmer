@@ -197,6 +197,7 @@ mod tests {
     const SPREAD: SpreadConfig = SpreadConfig {
         gap: 8.,
         max_count: 20,
+        scroll_factor: 2.,
     };
 
     fn anchor(vertical: VerticalAnchor) -> Anchor {

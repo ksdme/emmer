@@ -56,6 +56,7 @@ mod tests {
         for kdl in [
             "",
             "width 400",
+            "timeouts { default 5000; force-default true; }",
             r##"font "Inter 11"; colors { text "#000000"; }"##,
             r##"notification { title { font "Inter Italic 11"; }; }; bar { background "#ff0000"; }"##,
         ] {

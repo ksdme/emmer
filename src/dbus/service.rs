@@ -19,6 +19,7 @@ use zbus::{
 };
 
 use crate::{
+    config::TimeoutsConfig,
     dbus::{
         image,
         notification::{self, ImageData, ImageSource, Urgency},
@@ -52,25 +53,32 @@ pub enum ServerMessage {
 
 /// A dbus service for handling notification messages.
 pub struct NotificationService {
-    pub id_counter: AtomicU32,
-    pub tx: channel::Sender<UIMessage>,
-
     // zbus dispatches method calls on its own executor, so, the tokio runtime
     // has to be reached through a handle for scheduling blocking work.
     runtime: tokio::runtime::Handle,
+
+    timeouts: TimeoutsConfig,
     // Only one sound plays at a time, so that bursts of notifications do not pile
     // their sounds on top of each other.
-    sound_busy: Arc<AtomicBool>,
+    ringing: Arc<AtomicBool>,
+
+    pub id_counter: AtomicU32,
+    pub tx: channel::Sender<UIMessage>,
 }
 
 impl NotificationService {
     /// Must be called from within a tokio runtime.
-    pub fn new(runtime: tokio::runtime::Handle, tx: channel::Sender<UIMessage>) -> Self {
+    pub fn new(
+        runtime: tokio::runtime::Handle,
+        tx: channel::Sender<UIMessage>,
+        timeouts: TimeoutsConfig,
+    ) -> Self {
         Self {
             id_counter: AtomicU32::new(1),
             tx,
             runtime,
-            sound_busy: Arc::default(),
+            ringing: Arc::default(),
+            timeouts,
         }
     }
 
@@ -112,11 +120,11 @@ impl NotificationService {
         }
 
         // Set the devive busy.
-        if self.sound_busy.swap(true, Ordering::AcqRel) {
+        let ringing = self.ringing.clone();
+        if ringing.swap(true, Ordering::AcqRel) {
             return;
         }
 
-        let sound_busy = self.sound_busy.clone();
         self.runtime.spawn_blocking(move || {
             // A missing "sound-file" falls back to the "sound-name".
             if let Some(path) = file
@@ -126,7 +134,7 @@ impl NotificationService {
                 let _ = logged!(sound::play(&path).context("Could not play sound"));
             }
 
-            sound_busy.store(false, Ordering::Release);
+            ringing.store(false, Ordering::Release);
         });
     }
 }
@@ -199,17 +207,16 @@ impl NotificationService {
             })
             .collect();
 
-        let expiry = if expire_timeout == 0 {
-            None
-        } else if expire_timeout < 0 {
-            match urgency {
-                // TODO: Maybe make the low and normal values configurable.
-                Urgency::Low => Some(Duration::from_secs(5)),
-                Urgency::Normal => Some(Duration::from_secs(10)),
-                Urgency::Critical => None,
-            }
+        // A negative timeout leaves it to the server.
+        let timeout = if expire_timeout < 0 || self.timeouts.force_default {
+            self.timeouts.default as u64
         } else {
-            Some(Duration::from_millis(expire_timeout as u64))
+            expire_timeout as u64
+        };
+        let expiry = if timeout != 0 {
+            Some(Duration::from_millis(timeout as u64))
+        } else {
+            None
         };
 
         // Build an instance of the notification from DBUS parameters.

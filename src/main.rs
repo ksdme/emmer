@@ -11,7 +11,7 @@ use wayland_client::Connection;
 use zbus::{connection, object_server::SignalEmitter};
 
 use crate::{
-    config::{ComputedConfig, Config},
+    config::{ComputedConfig, Config, TimeoutsConfig},
     dbus::service::{NotificationService, ServerMessage},
     ui::app::{App, UIMessage},
 };
@@ -67,6 +67,7 @@ fn main() -> Result<()> {
     let (server_tx, mut server_rx) = tokio::sync::mpsc::unbounded_channel::<ServerMessage>();
 
     // Start the dbus service in a separate thread with tokio.
+    let timeouts = config.timeouts.clone();
     let service_thread = thread::spawn(move || {
         let task = tokio::runtime::Builder::new_current_thread()
             .enable_all()
@@ -78,6 +79,7 @@ fn main() -> Result<()> {
                     &startup_tx,
                     ui_tx,
                     &mut server_rx,
+                    timeouts,
                 ))
             })
             .context("Could not block on service");
@@ -178,8 +180,9 @@ async fn run_server(
     startup_tx: &std::sync::mpsc::Sender<Result<()>>,
     ui_tx: channel::Sender<UIMessage>,
     server_rx: &mut tokio::sync::mpsc::UnboundedReceiver<ServerMessage>,
+    timeouts: TimeoutsConfig,
 ) -> Result<()> {
-    let service = NotificationService::new(rt, ui_tx);
+    let service = NotificationService::new(rt, ui_tx, timeouts);
 
     let conn = connection::Builder::session()?
         .name("org.freedesktop.Notifications")?

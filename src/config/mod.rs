@@ -42,6 +42,15 @@ settings! {
         pub max_count: usize,
     }
 
+    pub struct TimeoutsConfig {
+        /// The time in milliseconds after which a notification is dismissed, when
+        /// the app leaves it to the server. A value of 0 never dismisses it.
+        pub default: usize,
+
+        /// Whether the default is used even when the app asks for a timeout.
+        pub force_default: bool,
+    }
+
     // TODO: Support spread on stack.
     /// Represents the global application configuration.
     pub struct Config {
@@ -56,6 +65,9 @@ settings! {
 
         /// The configuration of the notifications spread.
         pub spread: SpreadConfig,
+
+        /// The time for which the notifications stay on screen.
+        pub timeouts: TimeoutsConfig,
 
         /// The font that everything falls back to.
         /// https://docs.gtk.org/Pango/type_func.FontDescription.from_string.html#description
@@ -90,6 +102,11 @@ impl Default for Config {
             spread: SpreadConfig {
                 gap: 8.,
                 max_count: 20,
+            },
+
+            timeouts: TimeoutsConfig {
+                default: 0,
+                force_default: false,
             },
 
             font: FontDescription::from_string("JetBrainsMono Nerd Font Mono 10"),

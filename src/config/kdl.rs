@@ -81,6 +81,14 @@ impl Scalar for usize {
     }
 }
 
+impl Scalar for bool {
+    type Arg = bool;
+
+    fn to_arg(&self) -> String {
+        self.to_string()
+    }
+}
+
 impl Scalar for Color {
     type Arg = Color;
 

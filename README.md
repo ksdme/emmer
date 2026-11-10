@@ -15,6 +15,46 @@ A Wayland notification daemon, inspired by [Sonner](https://sonner.emilkowal.ski
 - **Tokio** for async
 - **rodio** for notification sounds
 
+## Installation
+
+Emmer is started on demand through D-Bus activation, like mako. Installing it
+copies the binary, a D-Bus service file and a systemd user unit under `PREFIX`
+(`~/.local` by default):
+
+```sh
+task build
+task install                            # or: sudo task install PREFIX=/usr/local
+systemctl --user daemon-reload
+```
+
+The first notification sent will start `emmer.service`.
+
+Only one daemon can own `org.freedesktop.Notifications`. The D-Bus service file
+in `~/.local/share` takes precedence over the ones in `/usr/share`, but it is
+best to also mask the existing daemon so that it can't be started at all. For
+mako:
+
+```sh
+systemctl --user mask --now mako.service
+systemctl --user reload dbus-broker.service
+```
+
+The compositor needs to export `WAYLAND_DISPLAY` to the systemd user
+environment; otherwise the service will not start. Most sessions do this
+already. If yours doesn't, add something like this to its config:
+
+```sh
+systemctl --user import-environment WAYLAND_DISPLAY
+```
+
+To switch back to mako:
+
+```sh
+task uninstall
+systemctl --user unmask mako.service
+systemctl --user reload dbus-broker.service
+```
+
 ## Configuration
 
 Emmer reads `$XDG_CONFIG_HOME/emmer/config.kdl`, or the file given with

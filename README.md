@@ -25,6 +25,16 @@ start from the defaults, with each option documented:
 emmer default-config > ~/.config/emmer/config.kdl
 ```
 
+Notifications show in the top right corner by default. To move them, set the
+`anchor` block:
+
+```kdl
+anchor {
+    horizontal "center"
+    vertical "bottom"
+}
+```
+
 ## Pending
 
 - Text alignment

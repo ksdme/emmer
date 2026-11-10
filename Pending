@@ -68,3 +68,5 @@ Done
     - `emmer default-config` prints it, with the docs as comments
 - Fix the timeout values
     - `timeouts` block with `default` and `force-default`, matching mako's defaults
+- Configurable anchor position
+    - `anchor` block with `horizontal` and `vertical`, defaulting to the top right

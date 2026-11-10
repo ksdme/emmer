@@ -6,8 +6,8 @@ Pending
 - HiDPI
 - Center the image
 - Multiple stacks
-- Rule based themeing
 - How to handle multiple monitors?
+- Momentum scroll on touchpads
 
 Tests
 - Clicking on notification should dismiss it and also activate the app
@@ -46,6 +46,9 @@ Done
 - Drop the `Mutex` around `buffer_pool`, scope the cairo surface in `draw`
 - Decode images off the UI thread
 - Cap frame rate (so we don't have missed frames)
+- Rule based themeing
+    - `rule app-name=...` overrides the title and the actions of the notifications from an app
+    - Only the colors and fonts are overridable, and only the app name is matched on
     - Draw only on frame callbacks
 - Dismiss goes too far down sometimes
     - Pure, direction-agnostic layout pass

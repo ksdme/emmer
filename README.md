@@ -64,7 +64,6 @@ start from the defaults, with each option documented:
 ```sh
 emmer default-config > ~/.config/emmer/config.kdl
 ```
-
 Notifications show in the top right corner by default. To move them, set the
 `anchor` block:
 
@@ -98,8 +97,8 @@ rule app-name="Slack" {
 - HiDPI
 - Center the image
 - Multiple stacks
-- Rule-based theming
 - Multiple monitors
+- Momentum scroll on touchpads
 
 **Tests**
 - Clicking a notification should dismiss it and activate the app

@@ -141,6 +141,8 @@ impl NotificationService {
 
 #[interface(name = "org.freedesktop.Notifications")]
 impl NotificationService {
+    // The signature is dictated by the notification spec.
+    #[allow(clippy::too_many_arguments)]
     async fn notify(
         &self,
         app_name: &str,
@@ -214,7 +216,7 @@ impl NotificationService {
             expire_timeout as u64
         };
         let expiry = if timeout != 0 {
-            Some(Duration::from_millis(timeout as u64))
+            Some(Duration::from_millis(timeout))
         } else {
             None
         };

@@ -1,6 +1,27 @@
 version: "3"
 
+vars:
+  PREFIX:
+    sh: echo "$HOME/.local"
+  BINDIR: "{{.PREFIX}}/bin"
+  DBUSDIR: "{{.PREFIX}}/share/dbus-1/services"
+  UNITDIR: "{{.PREFIX}}/share/systemd/user"
+
 tasks:
+  build:
+    cmds:
+      - cargo build --release
+
+  install:
+    cmds:
+      - install -Dm755 target/release/emmer "{{.BINDIR}}/emmer"
+      - sed 's|@bindir@|{{.BINDIR}}|g' contrib/dev.ksdme.emmer.service | install -Dm644 /dev/stdin "{{.DBUSDIR}}/dev.ksdme.emmer.service"
+      - sed 's|@bindir@|{{.BINDIR}}|g' contrib/emmer.service | install -Dm644 /dev/stdin "{{.UNITDIR}}/emmer.service"
+
+  uninstall:
+    cmds:
+      - rm -f "{{.BINDIR}}/emmer" "{{.DBUSDIR}}/dev.ksdme.emmer.service" "{{.UNITDIR}}/emmer.service"
+
   run:
     cmds:
       - systemctl stop --user mako.service

@@ -8,7 +8,6 @@ Pending
 - Multiple stacks
 - Rule based themeing
 - How to handle multiple monitors?
-- Fix the timeout values
 
 Tests
 - Clicking on notification should dismiss it and also activate the app
@@ -67,3 +66,5 @@ Done
     - Fonts are given as full pango font descriptions
 - Default configuration file
     - `emmer default-config` prints it, with the docs as comments
+- Fix the timeout values
+    - `timeouts` block with `default` and `force-default`, matching mako's defaults

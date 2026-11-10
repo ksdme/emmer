@@ -34,7 +34,6 @@ emmer default-config > ~/.config/emmer/config.kdl
 - Multiple stacks
 - Rule-based theming
 - Multiple monitors
-- Timeout values
 
 **Tests**
 - Clicking a notification should dismiss it and activate the app

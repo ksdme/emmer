@@ -94,14 +94,9 @@ impl<S: ErrorSpan> DecodeScalar<S> for Color {
         value: &Spanned<Literal, S>,
         ctx: &mut Context<S>,
     ) -> Result<Self, DecodeError<S>> {
-        let hex = String::raw_decode(value, ctx)?;
-        Color::from_hex(&hex).ok_or_else(|| {
-            DecodeError::unexpected(
-                value,
-                "value",
-                "invalid color, expected #rrggbb or #rrggbbaa",
-            )
-        })
+        let css = String::raw_decode(value, ctx)?;
+        Color::parse(&css)
+            .map_err(|err| DecodeError::unexpected(value, "value", format!("invalid color, {err}")))
     }
 }
 

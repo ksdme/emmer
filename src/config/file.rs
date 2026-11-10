@@ -111,8 +111,8 @@ mod tests {
         for (kdl, offending) in [
             // Invalid color.
             (
-                r#"theme { bar { surface { background "red"; }; }; }"#,
-                r#""red""#,
+                r#"theme { bar { surface { background "nope"; }; }; }"#,
+                r#""nope""#,
             ),
             // Invalid type.
             ("stack { max-count 2.5; }", "2.5"),

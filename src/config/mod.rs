@@ -6,6 +6,8 @@ mod theme;
 use kdl::settings;
 use pango::FontDescription;
 
+use crate::ui::anchors::{HorizontalAnchor, VerticalAnchor};
+
 pub use computed::{ComputedConfig, Surface, Text};
 pub use file::default_path;
 pub use theme::{Colors, ControlConfig, NotificationConfig};
@@ -17,6 +19,15 @@ settings! {
 
         /// The measure in the vertical axis.
         pub y: f64,
+    }
+
+    pub struct AnchorConfig {
+        /// The edge the cards are aligned to, one of "left", "center" or
+        /// "right".
+        pub horizontal: HorizontalAnchor,
+
+        /// The edge the cards stack up from, one of "top" or "bottom".
+        pub vertical: VerticalAnchor,
     }
 
     pub struct StackConfig {
@@ -57,6 +68,9 @@ settings! {
         /// The width of a notification card.
         pub width: f64,
 
+        /// The position of the cards on the screen.
+        pub anchor: AnchorConfig,
+
         /// The margin around the cards.
         pub margin: Insets,
 
@@ -91,6 +105,10 @@ impl Default for Config {
     fn default() -> Self {
         Self {
             width: 320.,
+            anchor: AnchorConfig {
+                horizontal: HorizontalAnchor::Right,
+                vertical: VerticalAnchor::Top,
+            },
             margin: Insets { x: 32., y: 32. },
 
             stack: StackConfig {

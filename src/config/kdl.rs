@@ -10,7 +10,10 @@ use knus::{
 };
 use pango::FontDescription;
 
-use crate::ui::renderables::Color;
+use crate::ui::{
+    anchors::{HorizontalAnchor, VerticalAnchor},
+    renderables::Color,
+};
 
 /// A config value that can be patched from, and written as, a kdl node.
 pub trait Setting: PartialEq {
@@ -94,6 +97,31 @@ impl Scalar for Color {
 
     fn to_arg(&self) -> String {
         format!("{:?}", self.to_hex())
+    }
+}
+
+impl Scalar for HorizontalAnchor {
+    type Arg = HorizontalAnchor;
+
+    fn to_arg(&self) -> String {
+        let name = match self {
+            HorizontalAnchor::Left => "left",
+            HorizontalAnchor::Center => "center",
+            HorizontalAnchor::Right => "right",
+        };
+        format!("{name:?}")
+    }
+}
+
+impl Scalar for VerticalAnchor {
+    type Arg = VerticalAnchor;
+
+    fn to_arg(&self) -> String {
+        let name = match self {
+            VerticalAnchor::Top => "top",
+            VerticalAnchor::Bottom => "bottom",
+        };
+        format!("{name:?}")
     }
 }
 

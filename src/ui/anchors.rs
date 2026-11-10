@@ -1,5 +1,5 @@
 /// The horizontal anchor position.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, knus::DecodeScalar)]
 pub enum HorizontalAnchor {
     Left,
     Center,
@@ -7,7 +7,7 @@ pub enum HorizontalAnchor {
 }
 
 /// The vertical anchor position.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, knus::DecodeScalar)]
 pub enum VerticalAnchor {
     Top,
     Bottom,

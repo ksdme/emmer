@@ -56,6 +56,7 @@ mod tests {
         for kdl in [
             "",
             "width 400",
+            r#"anchor { horizontal "center"; vertical "top"; }"#,
             "timeouts { default 5000; force-default true; }",
             r##"font "Inter 11"; colors { text "#000000"; }"##,
             r##"notification { title { font "Inter Italic 11"; }; }; bar { background "#ff0000"; }"##,
@@ -107,6 +108,7 @@ mod tests {
 
         let defaults = Config::default();
         assert_eq!(config.width, 400.);
+        assert_eq!(config.anchor, defaults.anchor);
         assert_eq!(config.margin.x, defaults.margin.x);
 
         assert_eq!(config.actions.radius, 0.);
@@ -124,6 +126,8 @@ mod tests {
             (r#"bar { background "nope"; }"#, r#""nope""#),
             // Invalid type.
             ("stack { max-count 2.5; }", "2.5"),
+            // Invalid variant.
+            (r#"anchor { vertical "middle"; }"#, r#""middle""#),
             // Unknown field.
             ("bar { unknown 1; }", "unknown 1;"),
             // Block on a value.

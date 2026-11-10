@@ -30,7 +30,7 @@ impl ComputedConfig {
         Self {
             debug_mode,
 
-            anchors: (HorizontalAnchor::Right, VerticalAnchor::Bottom),
+            anchors: (config.anchor.horizontal, config.anchor.vertical),
 
             theme: Theme::new(&config),
 

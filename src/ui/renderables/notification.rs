@@ -1,7 +1,9 @@
+use std::rc::Rc;
+
 use anyhow::{Context, Result};
 
 use crate::{
-    config::{ComputedConfig, NotificationTheme, TextTheme},
+    config::{self, ComputedConfig},
     dbus, logged,
     ui::{
         anchors::VerticalAnchor,
@@ -12,8 +14,7 @@ use crate::{
 /// Renders a notification card.
 #[derive(Debug)]
 pub struct Notification {
-    width: f64,
-    theme: NotificationTheme,
+    config: Rc<ComputedConfig>,
 
     // The edge the contents stick to when they are clipped.
     clip_anchor: VerticalAnchor,
@@ -28,15 +29,15 @@ pub struct Notification {
 
 impl Notification {
     pub fn new(
-        config: &ComputedConfig,
+        config: Rc<ComputedConfig>,
         app: Option<&str>,
         image: Option<dbus::image::Image>,
         title: Option<&str>,
         body: Option<&str>,
         created_at: Option<&str>,
     ) -> Result<Self> {
-        let theme = config.theme.notification.clone();
-        let padding = &theme.surface.padding;
+        let theme = &config.theme;
+        let padding = &theme.notification.padding;
 
         let image_r = if let Some(image) = image {
             logged!(
@@ -59,18 +60,17 @@ impl Notification {
         };
 
         Ok(Self {
-            width: config.width,
-
             clip_anchor: VerticalAnchor::Top,
 
             image_r,
             title_r: title.map(|title| text(&theme.title.font, Some(inner_w), None, title)),
             body_r: body.map(|body| text(&theme.body.font, Some(inner_w), None, body)),
 
-            app_r: app.map(|app| text(&theme.meta.font, None, Some(-1), app)),
-            created_at_r: created_at.map(|created| text(&theme.meta.font, None, Some(-1), created)),
+            app_r: app.map(|app| text(&theme.footer.font, None, Some(-1), app)),
+            created_at_r: created_at
+                .map(|created| text(&theme.footer.font, None, Some(-1), created)),
 
-            theme,
+            config,
         })
     }
 
@@ -86,7 +86,7 @@ impl Notification {
         let image_h = self.image_r.as_ref().map(|r| r.measure().h).unwrap_or(0.);
 
         let title_gap = if title_h > 0. && body_h > 0. {
-            self.theme.title_gap
+            self.config.theme.title_gap
         } else {
             0.
         };
@@ -95,7 +95,7 @@ impl Notification {
     }
 
     // Height contributed by the non core contents.
-    fn meta_height(&self) -> f64 {
+    fn footer_height(&self) -> f64 {
         let name_h = self.app_r.as_ref().map(|r| r.measure().h).unwrap_or(0.);
         let created_h = self
             .created_at_r
@@ -108,15 +108,15 @@ impl Notification {
 
     // The total height of the non padding contents.
     fn inner_height(&self) -> f64 {
-        let m_h = self.meta_height();
+        let m_h = self.footer_height();
         let c_h = self.content_height();
-        let meta_gap = if c_h > 0. && m_h > 0. {
-            self.theme.meta_gap
+        let footer_gap = if c_h > 0. && m_h > 0. {
+            self.config.theme.footer_gap
         } else {
             0.
         };
 
-        c_h + m_h + meta_gap
+        c_h + m_h + footer_gap
     }
 }
 
@@ -125,20 +125,20 @@ impl Renderable for Notification {
 
     fn measure(&self) -> Size {
         Size {
-            w: self.width,
-            h: self.inner_height() + 2. * self.theme.surface.padding.y,
+            w: self.config.width,
+            h: self.inner_height() + 2. * self.config.theme.notification.padding.y,
         }
     }
 
     fn paint(&self, cr: &cairo::Context, rect: Rect, style: &Style) -> Result<()> {
-        let theme = &self.theme;
-        let padding = &theme.surface.padding;
+        let theme = &self.config.theme;
+        let padding = &theme.notification.padding;
 
         // The base.
         card::paint(
             cr,
             rect,
-            &card::Style::from_surface(&theme.surface, style.outer_opacity),
+            &card::Style::from_surface(&theme.notification, style.outer_opacity),
         )
         .context("Could not draw block")?;
 
@@ -190,7 +190,7 @@ impl Renderable for Notification {
             };
 
             cr.new_path();
-            let text_style = |text: &TextTheme| text::Style {
+            let text_style = |text: &config::Text| text::Style {
                 color: text.color.faded(style.inner_opacity),
             };
 
@@ -223,7 +223,7 @@ impl Renderable for Notification {
                 app_r.paint(
                     cr,
                     Rect::from_origin(rect.x1 + padding.x, rect.y2 - padding.y - size.h, size),
-                    &text_style(&theme.meta),
+                    &text_style(&theme.footer),
                 )?;
             }
 
@@ -236,7 +236,7 @@ impl Renderable for Notification {
                         rect.y2 - padding.y - size.h,
                         size,
                     ),
-                    &text_style(&theme.meta),
+                    &text_style(&theme.footer),
                 )?;
             }
 

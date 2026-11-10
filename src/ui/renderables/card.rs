@@ -1,7 +1,7 @@
 use anyhow::{Context, Result};
 
 use crate::{
-    config::SurfaceTheme,
+    config::Surface,
     ui::renderables::{Color, Rect, rounded_sub_path},
 };
 
@@ -16,12 +16,12 @@ pub struct Style {
 
 impl Style {
     /// Returns the style of a surface faded by opacity.
-    pub fn from_surface(surface: &SurfaceTheme, opacity: f64) -> Self {
+    pub fn from_surface(surface: &Surface, opacity: f64) -> Self {
         Self {
             bg: surface.background.faded(opacity),
             border_width: surface.border_width,
             border_color: surface.border_color.faded(opacity),
-            border_radius: surface.border_radius,
+            border_radius: surface.radius,
         }
     }
 }

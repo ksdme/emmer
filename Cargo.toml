@@ -10,7 +10,6 @@ chrono = "0.4.45"
 clap = { version = "4.6.1", features = ["derive"] }
 color = "0.3.3"
 debug-ignore = "1.0.5"
-documented = "0.10.0"
 env_logger = "0.11.9"
 image = "0.25.10"
 knus = "3.4.1"
@@ -22,7 +21,6 @@ pastey = "0.2.3"
 rand = "0.10.1"
 rodio = { version = "0.23.0", default-features = false, features = ["playback", "vorbis", "wav", "flac"] }
 smithay-client-toolkit = "0.20.0"
-struct-patch = { version = "0.14.4", default-features = false }
 tokio = { version = "1.52.3", features = ["default", "macros", "rt", "rt-multi-thread", "sync"] }
 url = "2.5.8"
 wayland-client = "0.31.12"

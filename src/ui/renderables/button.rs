@@ -1,33 +1,35 @@
+use std::rc::Rc;
+
 use anyhow::{Context, Result};
 
 use crate::{
-    config::{ButtonTheme, ComputedConfig},
+    config::ComputedConfig,
     ui::renderables::{Rect, Renderable, Size, card, text},
 };
 
 /// Represents a generic button.
 #[derive(Debug)]
 pub struct Button {
-    theme: ButtonTheme,
+    config: Rc<ComputedConfig>,
 
     label_r: text::Text,
 }
 
 impl Button {
-    pub fn new(config: &ComputedConfig, label: &str, max_w: Option<i32>) -> Self {
-        let theme = config.theme.button.clone();
-        let padding = &theme.surface.padding;
+    pub fn new(config: Rc<ComputedConfig>, label: &str, max_w: Option<i32>) -> Self {
+        let theme = &config.theme;
+        let padding = &theme.button.padding;
 
         Self {
             label_r: text::Text::new(
                 &config.font_map,
-                &theme.label.font,
+                &theme.button_label.font,
                 max_w.map(|w| w - (2. * padding.x) as i32),
                 Some(-1),
                 label,
             ),
 
-            theme,
+            config,
         }
     }
 }
@@ -36,7 +38,7 @@ impl Renderable for Button {
     type Style = Style;
 
     fn measure(&self) -> Size {
-        let padding = &self.theme.surface.padding;
+        let padding = &self.config.theme.button.padding;
         let label = self.label_r.measure();
         Size {
             w: 2. * padding.x + label.w,
@@ -45,7 +47,8 @@ impl Renderable for Button {
     }
 
     fn paint(&self, cr: &cairo::Context, rect: Rect, style: &Style) -> Result<()> {
-        let surface = &self.theme.surface;
+        let theme = &self.config.theme;
+        let surface = &theme.button;
 
         let mut box_style = card::Style::from_surface(surface, style.opacity);
         box_style.bg = box_style.bg.with_lightness(style.light);
@@ -60,7 +63,7 @@ impl Renderable for Button {
                     self.label_r.measure(),
                 ),
                 &text::Style {
-                    color: self.theme.label.color.faded(style.opacity),
+                    color: theme.button_label.color.faded(style.opacity),
                 },
             )
             .context("Could not draw label")

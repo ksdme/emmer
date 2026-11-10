@@ -1,204 +1,172 @@
-use documented::DocumentedFields;
 use pango::FontDescription;
-use struct_patch::Patch;
 
 use crate::{
-    config::{
-        Insets, InsetsPatch,
-        kdl::{Float, Font},
-    },
+    config::{Insets, kdl::settings},
     ui::renderables::Color,
 };
 
-/// The theme of a box shaped surface.
-#[derive(Debug, Clone, PartialEq, DocumentedFields, Patch)]
-#[patch(attribute(derive(knus::Decode)))]
-pub struct SurfaceTheme {
-    /// The color the surface is filled with.
-    #[patch(attribute(knus(child, unwrap(argument))))]
-    pub background: Color,
+settings! {
+    /// The colors that everything falls back to.
+    pub struct Colors {
+        /// The color of the text.
+        pub text: Color,
 
-    /// The width of the border, a zero width disables the border.
-    #[patch(name = "Float", attribute(knus(child, unwrap(argument))))]
-    pub border_width: f64,
+        /// The color of the secondary text, like the app name and the time.
+        pub muted: Color,
 
-    /// The color of the border.
-    #[patch(attribute(knus(child, unwrap(argument))))]
-    pub border_color: Color,
+        /// The color the notifications, the action buttons and the bar are
+        /// filled with.
+        pub background: Color,
 
-    /// The radius of the corners.
-    #[patch(name = "Float", attribute(knus(child, unwrap(argument))))]
-    pub border_radius: f64,
+        /// The color of the borders.
+        pub border: Color,
+    }
 
-    /// The space between the edges of the surface and its contents.
-    #[patch(name = "InsetsPatch", attribute(knus(child)))]
-    pub padding: Insets,
+    /// The look of a piece of text.
+    pub struct TextConfig {
+        /// Overrides the font of the text.
+        pub font: Option<FontDescription>,
+
+        /// Overrides the color of the text.
+        pub color: Option<Color>,
+    }
+
+    /// The look of a piece of text that is spaced out from the body.
+    pub struct SpacedTextConfig {
+        /// Overrides the font of the text.
+        pub font: Option<FontDescription>,
+
+        /// Overrides the color of the text.
+        pub color: Option<Color>,
+
+        /// The space between it and the body.
+        pub gap: f64,
+    }
+
+    /// The look of the image of a notification.
+    pub struct ImageConfig {
+        /// The radius of the corners, which is capped to a third of the height
+        /// of the image.
+        pub radius: f64,
+
+        /// The space between the image and the text.
+        pub gap: f64,
+    }
+
+    /// The look of a notification.
+    pub struct NotificationConfig {
+        /// The space between the edges and the contents.
+        pub padding: Insets,
+
+        /// The radius of the corners.
+        pub radius: f64,
+
+        /// The width of the border, a zero width disables the border.
+        pub border_width: f64,
+
+        /// Overrides the background color.
+        pub background: Option<Color>,
+
+        /// Overrides the border color.
+        pub border_color: Option<Color>,
+
+        /// The summary line.
+        pub title: SpacedTextConfig,
+
+        /// The main text.
+        pub body: TextConfig,
+
+        /// The app name and the time, which use the muted color.
+        pub footer: SpacedTextConfig,
+
+        /// The image or the icon.
+        pub image: ImageConfig,
+    }
+
+    /// The look of a clickable control.
+    pub struct ControlConfig {
+        /// The space between the edges and the labels.
+        pub padding: Insets,
+
+        /// The radius of the corners.
+        pub radius: f64,
+
+        /// The width of the border, a zero width disables the border.
+        pub border_width: f64,
+
+        /// The space that separates it from its neighbours.
+        pub gap: f64,
+
+        /// Overrides the background color.
+        pub background: Option<Color>,
+
+        /// Overrides the border color.
+        pub border_color: Option<Color>,
+
+        /// Overrides the font of the labels.
+        pub font: Option<FontDescription>,
+
+        /// Overrides the color of the labels.
+        pub color: Option<Color>,
+    }
 }
 
-/// The theme of a piece of text.
-#[derive(Debug, Clone, PartialEq, DocumentedFields, Patch)]
-#[patch(attribute(derive(knus::Decode)))]
-pub struct TextTheme {
-    /// The font of the text.
-    /// https://docs.gtk.org/Pango/type_func.FontDescription.from_string.html#description
-    #[patch(name = "Font", attribute(knus(child, unwrap(argument))))]
-    pub font: FontDescription,
-
-    /// The color of the text.
-    #[patch(attribute(knus(child, unwrap(argument))))]
-    pub color: Color,
-}
-
-impl TextTheme {
-    pub fn new(font: &str, color: Color) -> Self {
+impl Default for Colors {
+    fn default() -> Self {
         Self {
-            font: FontDescription::from_string(font),
-            color,
+            text: Color::from_rgba_u8(255, 255, 255, 1.),
+            muted: Color::from_rgba_u8(255, 255, 255, 0.35),
+            background: Color::from_rgba_u8(52, 52, 52, 1.),
+            border: Color::from_rgba_u8(102, 102, 102, 1.),
         }
     }
 }
 
-/// The theme of a notification card.
-#[derive(Debug, Clone, PartialEq, DocumentedFields, Patch)]
-#[patch(attribute(derive(knus::Decode)))]
-pub struct NotificationTheme {
-    /// The theme of the card itself.
-    #[patch(name = "SurfaceThemePatch", attribute(knus(child)))]
-    pub surface: SurfaceTheme,
-
-    /// The theme of the title.
-    #[patch(name = "TextThemePatch", attribute(knus(child)))]
-    pub title: TextTheme,
-
-    /// The theme of the body.
-    #[patch(name = "TextThemePatch", attribute(knus(child)))]
-    pub body: TextTheme,
-
-    /// The theme of the app name and the time in the footer.
-    #[patch(name = "TextThemePatch", attribute(knus(child)))]
-    pub meta: TextTheme,
-
-    /// The radius of the corners of the image, which is capped to a third of
-    /// the height of the image.
-    #[patch(name = "Float", attribute(knus(child, unwrap(argument))))]
-    pub image_radius: f64,
-
-    /// The gap between the image and the text.
-    #[patch(name = "Float", attribute(knus(child, unwrap(argument))))]
-    pub image_gap: f64,
-
-    /// The gap between the title and the body.
-    #[patch(name = "Float", attribute(knus(child, unwrap(argument))))]
-    pub title_gap: f64,
-
-    /// The gap between the contents and the footer.
-    #[patch(name = "Float", attribute(knus(child, unwrap(argument))))]
-    pub meta_gap: f64,
-}
-
-/// The theme of an action button.
-#[derive(Debug, Clone, PartialEq, DocumentedFields, Patch)]
-#[patch(attribute(derive(knus::Decode)))]
-pub struct ButtonTheme {
-    /// The theme of the button itself.
-    #[patch(name = "SurfaceThemePatch", attribute(knus(child)))]
-    pub surface: SurfaceTheme,
-
-    /// The theme of the label.
-    #[patch(name = "TextThemePatch", attribute(knus(child)))]
-    pub label: TextTheme,
-
-    /// The gap between the buttons and from the notification card.
-    #[patch(name = "Float", attribute(knus(child, unwrap(argument))))]
-    pub gap: f64,
-}
-
-/// The theme of the dismiss-all bar.
-#[derive(Debug, Clone, PartialEq, DocumentedFields, Patch)]
-#[patch(attribute(derive(knus::Decode)))]
-pub struct BarTheme {
-    /// The theme of the bar itself.
-    #[patch(name = "SurfaceThemePatch", attribute(knus(child)))]
-    pub surface: SurfaceTheme,
-
-    /// The theme of the labels.
-    #[patch(name = "TextThemePatch", attribute(knus(child)))]
-    pub label: TextTheme,
-}
-
-#[derive(Debug, PartialEq, DocumentedFields, Patch)]
-#[patch(attribute(derive(knus::Decode)))]
-pub struct ThemeConfig {
-    /// The theme of the notification cards.
-    #[patch(name = "NotificationThemePatch", attribute(knus(child)))]
-    pub notification: NotificationTheme,
-
-    /// The theme of the action buttons.
-    #[patch(name = "ButtonThemePatch", attribute(knus(child)))]
-    pub button: ButtonTheme,
-
-    /// The theme of the dismiss-all bar.
-    #[patch(name = "BarThemePatch", attribute(knus(child)))]
-    pub bar: BarTheme,
-}
-
-impl Default for ThemeConfig {
+impl Default for NotificationConfig {
     fn default() -> Self {
-        let font = "JetBrainsMono Nerd Font Mono 10";
-        let bold_font = "JetBrainsMono Nerd Font Mono Bold 10";
-
-        let background = Color::from_rgba_u8(52, 52, 52, 1.);
-        let border_color = Color::from_rgba_u8(102, 102, 102, 1.);
-        let text_color = Color::from_rgba_u8(255, 255, 255, 1.);
-
-        let text = TextTheme::new(font, text_color);
-
         Self {
-            notification: NotificationTheme {
-                surface: SurfaceTheme {
-                    background,
-                    border_width: 1.5,
-                    border_color,
-                    border_radius: 8.,
-                    padding: Insets { x: 12., y: 12. },
-                },
+            padding: Insets { x: 12., y: 12. },
+            radius: 8.,
+            border_width: 1.5,
+            background: None,
+            border_color: None,
 
-                title: TextTheme::new(bold_font, text_color),
-                body: text.clone(),
-                meta: TextTheme::new(font, text_color.with_alpha(0.35)),
-
-                image_radius: 6.,
-
-                image_gap: 8.,
-                title_gap: 8.,
-                meta_gap: 6.,
-            },
-
-            button: ButtonTheme {
-                surface: SurfaceTheme {
-                    background,
-                    border_width: 1.,
-                    border_color,
-                    border_radius: 4.,
-                    padding: Insets { x: 16., y: 8. },
-                },
-
-                label: text.clone(),
-
+            title: SpacedTextConfig {
+                font: Some(FontDescription::from_string(
+                    "JetBrainsMono Nerd Font Mono Bold 10",
+                )),
+                color: None,
                 gap: 8.,
             },
-
-            bar: BarTheme {
-                surface: SurfaceTheme {
-                    background,
-                    border_width: 1.,
-                    border_color,
-                    border_radius: 4.,
-                    padding: Insets { x: 12., y: 6. },
-                },
-
-                label: text,
+            body: TextConfig {
+                font: None,
+                color: None,
             },
+            footer: SpacedTextConfig {
+                font: None,
+                color: None,
+                gap: 6.,
+            },
+
+            image: ImageConfig {
+                radius: 6.,
+                gap: 8.,
+            },
+        }
+    }
+}
+
+impl ControlConfig {
+    pub fn new(padding: Insets) -> Self {
+        Self {
+            padding,
+            radius: 4.,
+            border_width: 1.,
+            gap: 8.,
+            background: None,
+            border_color: None,
+            font: None,
+            color: None,
         }
     }
 }

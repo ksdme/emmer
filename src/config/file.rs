@@ -4,9 +4,8 @@ use std::{
 };
 
 use miette::IntoDiagnostic;
-use struct_patch::Patch;
 
-use crate::config::{Config, ConfigPatch, kdl::Fields};
+use crate::config::{Config, ConfigPatch, kdl::Setting};
 
 impl Config {
     /// Reads the configuration from a kdl file.
@@ -25,10 +24,11 @@ impl Config {
     }
 
     /// Returns the configuration as a kdl (v1) document, with the docs of each
-    /// field as comments.
+    /// field as comments. The values that are the same as their defaults, and
+    /// the ones that are unset, are commented out.
     pub fn to_kdl(&self) -> String {
         let mut out = String::new();
-        self.write_fields(&mut out, 0);
+        self.write_fields(&Self::default(), &mut out, 0);
         out
     }
 }
@@ -52,19 +52,37 @@ mod tests {
     }
 
     #[test]
-    fn default_config_round_trips() {
-        let kdl = Config::default().to_kdl();
-        let config = parse(&kdl).unwrap();
-        assert_eq!(config.to_kdl(), kdl);
+    fn configs_round_trip() {
+        for kdl in [
+            "",
+            "width 400",
+            r##"font "Inter 11"; colors { text "#000000"; }"##,
+            r##"notification { title { font "Inter Italic 11"; }; }; bar { background "#ff0000"; }"##,
+        ] {
+            let config = parse(kdl).unwrap();
+            assert_eq!(parse(&config.to_kdl()).unwrap(), config, "{kdl}");
+        }
     }
 
     #[test]
-    fn default_config_has_the_field_docs_as_comments() {
+    fn default_config_has_the_values_commented_out_under_their_docs() {
         let kdl = Config::default().to_kdl();
-        assert!(kdl.starts_with("// The width of a notification card.\nwidth "));
+        assert!(kdl.starts_with("// The width of a notification card.\n// width 320.0\n"));
         assert!(kdl.contains(
-            "\n            // The space between the edges of the surface and its contents.\n            padding {\n                // The measure in the horizontal axis.\n                x "
+            "\n    // The space between the edges and the contents.\n    padding {\n        // The measure in the horizontal axis.\n        // x "
         ));
+        assert!(kdl.contains("\n    // Overrides the background color.\n    // background\n"));
+    }
+
+    #[test]
+    fn changed_values_are_not_commented_out() {
+        let kdl = parse("width 400\nmargin { x 0; }\nbar { color \"#ff0000\"; }")
+            .unwrap()
+            .to_kdl();
+        assert!(kdl.contains("\nwidth 400.0\n"));
+        assert!(kdl.contains("\n    x 0.0\n"));
+        assert!(kdl.contains("\n    // y 32.0\n"));
+        assert!(kdl.contains("\n    color \"#ff0000\"\n"));
     }
 
     #[test]
@@ -73,17 +91,13 @@ mod tests {
             r##"
             width 400
 
-            theme {
-                button {
-                    surface {
-                        border-radius 0
-                    }
-                }
+            actions {
+                radius 0
+            }
 
-                notification {
-                    title {
-                        color "#ff000080"
-                    }
+            notification {
+                title {
+                    color "#ff000080"
                 }
             }
             "##,
@@ -94,34 +108,29 @@ mod tests {
         assert_eq!(config.width, 400.);
         assert_eq!(config.margin.x, defaults.margin.x);
 
-        let button = &config.theme.button.surface;
-        assert_eq!(button.border_radius, 0.);
-        assert_eq!(button.padding.x, defaults.theme.button.surface.padding.x);
+        assert_eq!(config.actions.radius, 0.);
+        assert_eq!(config.actions.padding, defaults.actions.padding);
 
-        let title = &config.theme.notification.title;
-        assert_eq!(title.color.to_hex(), "#ff000080");
-        assert_eq!(
-            title.font.to_str(),
-            defaults.theme.notification.title.font.to_str()
-        );
+        let title = &config.notification.title;
+        assert_eq!(title.color.unwrap().to_hex(), "#ff000080");
+        assert_eq!(title.font, defaults.notification.title.font);
     }
 
     #[test]
     fn invalid_configs_are_rejected_at_the_offending_node() {
         for (kdl, offending) in [
             // Invalid color.
-            (
-                r#"theme { bar { surface { background "nope"; }; }; }"#,
-                r#""nope""#,
-            ),
+            (r#"bar { background "nope"; }"#, r#""nope""#),
             // Invalid type.
             ("stack { max-count 2.5; }", "2.5"),
             // Unknown field.
-            ("theme { bar { unknown 1; }; }", "unknown 1;"),
+            ("bar { unknown 1; }", "unknown 1;"),
             // Block on a value.
             ("width 1 { x 1; }", "x 1;"),
             // Missing value.
             ("width { x 1; }", "width"),
+            // Missing optional value.
+            ("bar { background; }", "background"),
             // Value on a block.
             ("margin 1", "1"),
             // Multiple values.
@@ -143,27 +152,6 @@ mod tests {
 
     #[test]
     fn syntax_errors_are_rejected() {
-        assert!(parse("theme {").is_err());
-    }
-
-    #[test]
-    fn written_fields_match_the_documented_fields() {
-        fn check<T: Fields>(value: &T) {
-            let fields = value.fields().into_iter().map(|(name, _)| name);
-            assert!(fields.eq(T::FIELD_NAMES.iter().copied()));
-        }
-
-        let config = Config::default();
-        let theme = &config.theme;
-        check(&config);
-        check(&config.margin);
-        check(&config.stack);
-        check(&config.spread);
-        check(theme);
-        check(&theme.notification);
-        check(&theme.button);
-        check(&theme.bar);
-        check(&theme.notification.surface);
-        check(&theme.notification.title);
+        assert!(parse("notification {").is_err());
     }
 }

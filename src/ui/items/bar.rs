@@ -43,7 +43,7 @@ pub struct Bar {
 impl Bar {
     pub fn new(config: Rc<ComputedConfig>) -> Self {
         Self {
-            bar_r: bar::Bar::new(&config, 0),
+            bar_r: bar::Bar::new(config.clone(), 0),
             config,
 
             count: 0,
@@ -62,7 +62,7 @@ impl Bar {
     /// edge.
     pub fn push(&self) -> f64 {
         if self.shown() {
-            self.bar_r.measure().h + self.config.spread.gap
+            self.bar_r.measure().h + self.config.theme.bar_gap
         } else {
             0.
         }
@@ -73,7 +73,7 @@ impl Bar {
     pub fn set_count(&mut self, count: usize, now: Instant) {
         // The label is kept while hiding so that it does not change as it fades.
         if count > 1 && count != self.count {
-            self.bar_r = bar::Bar::new(&self.config, count);
+            self.bar_r = bar::Bar::new(self.config.clone(), count);
         }
         self.count = count;
 

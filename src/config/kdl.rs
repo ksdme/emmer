@@ -1,26 +1,247 @@
 use std::fmt::Write;
 
-use documented::DocumentedFields;
 use knus::{
-    DecodeScalar,
-    ast::{Literal, TypeName},
+    Decode, DecodeScalar,
+    ast::{Literal, SpannedNode, TypeName},
     decode::Context,
     errors::DecodeError,
     span::Spanned,
     traits::ErrorSpan,
 };
 use pango::FontDescription;
-use struct_patch::Patch;
 
-use crate::{
-    config::{
-        BarTheme, ButtonTheme, Config, Insets, NotificationTheme, SpreadConfig, StackConfig,
-        SurfaceTheme, TextTheme, ThemeConfig,
-    },
-    ui::renderables::Color,
-};
+use crate::ui::renderables::Color;
 
-/// The patch of a float, which can also be written as an integer.
+/// A config value that can be patched from, and written as, a kdl node.
+pub trait Setting: PartialEq {
+    /// The parts of the value that were given in a kdl document.
+    type Patch;
+
+    fn apply(&mut self, patch: Self::Patch);
+
+    /// Writes the value as a kdl node, where the values that are the same as
+    /// their default are commented out.
+    fn write_node(&self, name: &str, default: &Self, out: &mut String, depth: usize);
+}
+
+/// A config value that is written as the only argument of a kdl node.
+pub trait Scalar: PartialEq + Sized {
+    /// The decoded kdl argument.
+    type Arg: Into<Self>;
+
+    fn to_arg(&self) -> String;
+}
+
+impl<T: Scalar> Setting for T {
+    type Patch = Arg<T::Arg>;
+
+    fn apply(&mut self, Arg(arg): Self::Patch) {
+        *self = arg.into();
+    }
+
+    fn write_node(&self, name: &str, default: &Self, out: &mut String, depth: usize) {
+        write_arg(name, Some(self.to_arg()), self == default, out, depth);
+    }
+}
+
+/// An optional value, which is unset until it is given.
+impl<T: Scalar> Setting for Option<T> {
+    type Patch = Arg<T::Arg>;
+
+    fn apply(&mut self, Arg(arg): Self::Patch) {
+        *self = Some(arg.into());
+    }
+
+    fn write_node(&self, name: &str, default: &Self, out: &mut String, depth: usize) {
+        let arg = self.as_ref().map(T::to_arg);
+        write_arg(name, arg, self.is_none() || self == default, out, depth);
+    }
+}
+
+fn write_arg(name: &str, arg: Option<String>, commented: bool, out: &mut String, depth: usize) {
+    let comment = if commented { "// " } else { "" };
+    let arg = arg.map(|arg| format!(" {arg}")).unwrap_or_default();
+    let _ = write!(out, "{}{comment}{name}{arg}", indent(depth));
+}
+
+impl Scalar for f64 {
+    type Arg = Float;
+
+    fn to_arg(&self) -> String {
+        // Debug always keeps the decimal point.
+        format!("{self:?}")
+    }
+}
+
+impl Scalar for usize {
+    type Arg = usize;
+
+    fn to_arg(&self) -> String {
+        self.to_string()
+    }
+}
+
+impl Scalar for Color {
+    type Arg = Color;
+
+    fn to_arg(&self) -> String {
+        format!("{:?}", self.to_hex())
+    }
+}
+
+impl Scalar for FontDescription {
+    type Arg = Font;
+
+    fn to_arg(&self) -> String {
+        format!("{:?}", self.to_str().as_str())
+    }
+}
+
+pub fn indent(depth: usize) -> String {
+    "    ".repeat(depth)
+}
+
+/// Writes the docs of a field as comments, followed by its node.
+pub fn write_field<T: Setting>(
+    docs: &[&str],
+    name: &str,
+    value: &T,
+    default: &T,
+    out: &mut String,
+    depth: usize,
+) {
+    for line in docs {
+        let line = line.strip_prefix(' ').unwrap_or(line);
+        let _ = writeln!(out, "{}", format!("{}// {line}", indent(depth)).trim_end());
+    }
+
+    // The decoder expects the field names in kebab case.
+    value.write_node(&name.replace('_', "-"), default, out, depth);
+    out.push('\n');
+}
+
+/// Declares config structs whose fields are kdl child nodes, along with their
+/// patches and writers. The docs of the fields are written as comments.
+macro_rules! settings {
+    ($(
+        $(#[doc = $doc:literal])*
+        pub struct $name:ident {
+            $(
+                $(#[doc = $field_doc:literal])*
+                pub $field:ident: $ty:ty,
+            )*
+        }
+    )*) => {$(
+        $(#[doc = $doc])*
+        #[derive(Debug, Clone, PartialEq)]
+        pub struct $name {
+            $(
+                $(#[doc = $field_doc])*
+                pub $field: $ty,
+            )*
+        }
+
+        pastey::paste! {
+            #[derive(knus::Decode)]
+            pub struct [<$name Patch>] {
+                $(
+                    #[knus(child)]
+                    pub $field: Option<<$ty as $crate::config::kdl::Setting>::Patch>,
+                )*
+            }
+
+            impl $name {
+                /// Writes the fields as kdl nodes, separated by blank lines.
+                pub fn write_fields(&self, default: &Self, out: &mut String, depth: usize) {
+                    let fields = [$({
+                        let mut field = String::new();
+                        $crate::config::kdl::write_field(
+                            &[$($field_doc),*],
+                            stringify!($field),
+                            &self.$field,
+                            &default.$field,
+                            &mut field,
+                            depth,
+                        );
+                        field
+                    }),*];
+                    out.push_str(&fields.join("\n"));
+                }
+            }
+
+            impl $crate::config::kdl::Setting for $name {
+                type Patch = [<$name Patch>];
+
+                fn apply(&mut self, patch: Self::Patch) {
+                    $(
+                        if let Some(patch) = patch.$field {
+                            self.$field.apply(patch);
+                        }
+                    )*
+                }
+
+                fn write_node(&self, name: &str, default: &Self, out: &mut String, depth: usize) {
+                    use std::fmt::Write;
+
+                    let indent = $crate::config::kdl::indent(depth);
+                    let _ = writeln!(out, "{indent}{name} {{");
+                    self.write_fields(default, out, depth + 1);
+                    let _ = write!(out, "{indent}}}");
+                }
+            }
+        }
+    )*};
+}
+
+pub(super) use settings;
+
+/// A kdl node with a single argument and nothing else.
+pub struct Arg<T>(T);
+
+impl<S: ErrorSpan, T: DecodeScalar<S>> Decode<S> for Arg<T> {
+    fn decode_node(node: &SpannedNode<S>, ctx: &mut Context<S>) -> Result<Self, DecodeError<S>> {
+        if let Some(type_name) = &node.type_name {
+            ctx.emit_error(DecodeError::unexpected(
+                type_name,
+                "type name",
+                "no type name expected for this node",
+            ));
+        }
+
+        let mut args = node.arguments.iter();
+        let arg = args
+            .next()
+            .ok_or_else(|| DecodeError::missing(node, "additional argument is required"))?;
+        let value = T::decode(arg, ctx)?;
+        if let Some(arg) = args.next() {
+            return Err(DecodeError::unexpected(
+                &arg.literal,
+                "argument",
+                "unexpected argument",
+            ));
+        }
+
+        if let Some((name, _)) = node.properties.iter().next() {
+            return Err(DecodeError::unexpected(
+                name,
+                "property",
+                format!("unexpected property `{}`", name.escape_default()),
+            ));
+        }
+
+        for child in node.children.iter().flat_map(|children| children.iter()) {
+            ctx.emit_error(DecodeError::unexpected(
+                child,
+                "node",
+                format!("unexpected node `{}`", child.node_name.escape_default()),
+            ));
+        }
+
+        Ok(Self(value))
+    }
+}
+
+/// A float, which can also be written as an integer.
 pub struct Float(f64);
 
 impl<S: ErrorSpan> DecodeScalar<S> for Float {
@@ -41,7 +262,13 @@ impl<S: ErrorSpan> DecodeScalar<S> for Float {
     }
 }
 
-/// The patch of a font, written as a pango font description string.
+impl From<Float> for f64 {
+    fn from(Float(value): Float) -> Self {
+        value
+    }
+}
+
+/// A font, written as a pango font description string.
 pub struct Font(FontDescription);
 
 impl<S: ErrorSpan> DecodeScalar<S> for Font {
@@ -57,32 +284,10 @@ impl<S: ErrorSpan> DecodeScalar<S> for Font {
     }
 }
 
-// Implements the patch of a value that is always replaced as a whole.
-macro_rules! replaced_by {
-    ($($ty:ty => $patch:ident;)*) => {$(
-        impl Patch<$patch> for $ty {
-            fn apply(&mut self, patch: $patch) {
-                *self = patch.0;
-            }
-
-            fn into_patch(self) -> $patch {
-                $patch(self)
-            }
-
-            fn into_patch_by_diff(self, _: Self) -> $patch {
-                $patch(self)
-            }
-
-            fn new_empty_patch() -> $patch {
-                $patch(Default::default())
-            }
-        }
-    )*};
-}
-
-replaced_by! {
-    f64 => Float;
-    FontDescription => Font;
+impl From<Font> for FontDescription {
+    fn from(Font(value): Font) -> Self {
+        value
+    }
 }
 
 impl<S: ErrorSpan> DecodeScalar<S> for Color {
@@ -98,89 +303,4 @@ impl<S: ErrorSpan> DecodeScalar<S> for Color {
         Color::parse(&css)
             .map_err(|err| DecodeError::unexpected(value, "value", format!("invalid color, {err}")))
     }
-}
-
-/// Writes a value as the rest of a kdl node, after its name.
-pub trait Node {
-    fn write(&self, out: &mut String, depth: usize);
-}
-
-impl Node for f64 {
-    fn write(&self, out: &mut String, _: usize) {
-        // Debug always keeps the decimal point.
-        let _ = write!(out, " {self:?}");
-    }
-}
-
-impl Node for usize {
-    fn write(&self, out: &mut String, _: usize) {
-        let _ = write!(out, " {self}");
-    }
-}
-
-impl Node for Color {
-    fn write(&self, out: &mut String, _: usize) {
-        let _ = write!(out, " {:?}", self.to_hex());
-    }
-}
-
-impl Node for FontDescription {
-    fn write(&self, out: &mut String, _: usize) {
-        let _ = write!(out, " {:?}", self.to_str().as_str());
-    }
-}
-
-/// Writes a config struct as kdl nodes, with the docs of each field as
-/// comments above its node.
-pub trait Fields: DocumentedFields {
-    fn fields(&self) -> Vec<(&'static str, &dyn Node)>;
-
-    fn write_fields(&self, out: &mut String, depth: usize) {
-        let indent = "    ".repeat(depth);
-        for (index, (name, value)) in self.fields().into_iter().enumerate() {
-            if index > 0 {
-                out.push('\n');
-            }
-
-            for line in Self::get_field_docs(name).unwrap_or_default().lines() {
-                let _ = writeln!(out, "{}", format!("{indent}// {line}").trim_end());
-            }
-
-            // The decoder expects the field names in kebab case.
-            let _ = write!(out, "{indent}{}", name.replace('_', "-"));
-            value.write(out, depth);
-            out.push('\n');
-        }
-    }
-}
-
-impl<T: Fields> Node for T {
-    fn write(&self, out: &mut String, depth: usize) {
-        out.push_str(" {\n");
-        self.write_fields(out, depth + 1);
-        let _ = write!(out, "{}}}", "    ".repeat(depth));
-    }
-}
-
-macro_rules! fields {
-    ($($ty:ty { $($field:ident),* };)*) => {$(
-        impl Fields for $ty {
-            fn fields(&self) -> Vec<(&'static str, &dyn Node)> {
-                vec![$((stringify!($field), &self.$field)),*]
-            }
-        }
-    )*};
-}
-
-fields! {
-    Config { width, margin, stack, spread, theme };
-    Insets { x, y };
-    StackConfig { peek, inset, max_count };
-    SpreadConfig { gap, max_count };
-    ThemeConfig { notification, button, bar };
-    NotificationTheme { surface, title, body, meta, image_radius, image_gap, title_gap, meta_gap };
-    ButtonTheme { surface, label, gap };
-    BarTheme { surface, label };
-    SurfaceTheme { background, border_width, border_color, border_radius, padding };
-    TextTheme { font, color };
 }

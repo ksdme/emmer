@@ -3,83 +3,76 @@ mod file;
 mod kdl;
 mod theme;
 
-use documented::DocumentedFields;
-use struct_patch::Patch;
+use kdl::settings;
+use pango::FontDescription;
 
-use kdl::Float;
-
-pub use computed::ComputedConfig;
+pub use computed::{ComputedConfig, Surface, Text};
 pub use file::default_path;
-pub use theme::{BarTheme, ButtonTheme, NotificationTheme, SurfaceTheme, TextTheme, ThemeConfig};
+pub use theme::{Colors, ControlConfig, NotificationConfig};
 
-#[derive(Debug, Clone, PartialEq, DocumentedFields, Patch)]
-#[patch(attribute(derive(knus::Decode)))]
-pub struct Insets {
-    /// The measure in the horizontal axis.
-    #[patch(name = "Float", attribute(knus(child, unwrap(argument))))]
-    pub x: f64,
+settings! {
+    pub struct Insets {
+        /// The measure in the horizontal axis.
+        pub x: f64,
 
-    /// The measure in the vertical axis.
-    #[patch(name = "Float", attribute(knus(child, unwrap(argument))))]
-    pub y: f64,
-}
+        /// The measure in the vertical axis.
+        pub y: f64,
+    }
 
-#[derive(Debug, PartialEq, DocumentedFields, Patch)]
-#[patch(attribute(derive(knus::Decode)))]
-pub struct StackConfig {
-    /// The height by which each stacked card will be peeking outside the
-    /// the previous card.
-    #[patch(name = "Float", attribute(knus(child, unwrap(argument))))]
-    pub peek: f64,
+    pub struct StackConfig {
+        /// The height by which each stacked card will be peeking outside the
+        /// the previous card.
+        pub peek: f64,
 
-    /// The width by which each stacked card will be smaller than the
-    /// previous card.
-    #[patch(name = "Float", attribute(knus(child, unwrap(argument))))]
-    pub inset: f64,
+        /// The width by which each stacked card will be smaller than the
+        /// previous card.
+        pub inset: f64,
 
-    /// The maximum number of notification cards that will be visible when the
-    /// cards are stacked.
-    #[patch(attribute(knus(child, unwrap(argument))))]
-    pub max_count: usize,
-}
+        /// The maximum number of notification cards that will be visible when the
+        /// cards are stacked.
+        pub max_count: usize,
+    }
 
-#[derive(Debug, PartialEq, DocumentedFields, Patch)]
-#[patch(attribute(derive(knus::Decode)))]
-pub struct SpreadConfig {
-    /// The gap between each notification card when the cards are spread out.
-    #[patch(name = "Float", attribute(knus(child, unwrap(argument))))]
-    pub gap: f64,
+    pub struct SpreadConfig {
+        /// The gap between each notification card when the cards are spread out.
+        pub gap: f64,
 
-    /// The maximum number of notification cards that will be visible when the
-    /// cards are spread out of the stack.
-    #[patch(attribute(knus(child, unwrap(argument))))]
-    pub max_count: usize,
-}
+        /// The maximum number of notification cards that will be visible when the
+        /// cards are spread out of the stack.
+        pub max_count: usize,
+    }
 
-// TODO: Support spread on stack.
-/// Represents the global application configuration.
-#[derive(Debug, DocumentedFields, Patch)]
-#[patch(attribute(derive(knus::Decode)))]
-pub struct Config {
-    /// The width of a notification card.
-    #[patch(name = "Float", attribute(knus(child, unwrap(argument))))]
-    pub width: f64,
+    // TODO: Support spread on stack.
+    /// Represents the global application configuration.
+    pub struct Config {
+        /// The width of a notification card.
+        pub width: f64,
 
-    /// The margin around the cards.
-    #[patch(name = "InsetsPatch", attribute(knus(child)))]
-    pub margin: Insets,
+        /// The margin around the cards.
+        pub margin: Insets,
 
-    /// The configuration of the notification stack.
-    #[patch(name = "StackConfigPatch", attribute(knus(child)))]
-    pub stack: StackConfig,
+        /// The configuration of the notification stack.
+        pub stack: StackConfig,
 
-    /// The configuration of the notifications spread.
-    #[patch(name = "SpreadConfigPatch", attribute(knus(child)))]
-    pub spread: SpreadConfig,
+        /// The configuration of the notifications spread.
+        pub spread: SpreadConfig,
 
-    /// The theme of the notifications.
-    #[patch(name = "theme::ThemeConfigPatch", attribute(knus(child)))]
-    pub theme: ThemeConfig,
+        /// The font that everything falls back to.
+        /// https://docs.gtk.org/Pango/type_func.FontDescription.from_string.html#description
+        pub font: FontDescription,
+
+        /// The colors that everything falls back to.
+        pub colors: Colors,
+
+        /// The notification cards.
+        pub notification: NotificationConfig,
+
+        /// The action buttons below the notifications.
+        pub actions: ControlConfig,
+
+        /// The dismiss-all bar.
+        pub bar: ControlConfig,
+    }
 }
 
 impl Default for Config {
@@ -99,7 +92,12 @@ impl Default for Config {
                 max_count: 20,
             },
 
-            theme: ThemeConfig::default(),
+            font: FontDescription::from_string("JetBrainsMono Nerd Font Mono 10"),
+            colors: Colors::default(),
+
+            notification: NotificationConfig::default(),
+            actions: ControlConfig::new(Insets { x: 16., y: 8. }),
+            bar: ControlConfig::new(Insets { x: 12., y: 6. }),
         }
     }
 }

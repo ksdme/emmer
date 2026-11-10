@@ -1,7 +1,9 @@
+use std::rc::Rc;
+
 use anyhow::{Context, Result};
 
 use crate::{
-    config::{BarTheme, ComputedConfig},
+    config::ComputedConfig,
     ui::renderables::{Rect, Renderable, Size, card, rounded_sub_path, text},
 };
 
@@ -9,27 +11,22 @@ use crate::{
 /// a control to clear all of them.
 #[derive(Debug)]
 pub struct Bar {
-    width: f64,
-    theme: BarTheme,
+    config: Rc<ComputedConfig>,
 
     count_r: text::Text,
     clear_r: text::Text,
 }
 
 impl Bar {
-    pub fn new(config: &ComputedConfig, count: usize) -> Self {
-        let theme = config.theme.bar.clone();
-        let text = |label: &str| {
-            text::Text::new(&config.font_map, &theme.label.font, None, Some(-1), label)
-        };
+    pub fn new(config: Rc<ComputedConfig>, count: usize) -> Self {
+        let font = &config.theme.bar_label.font;
+        let text = |label: &str| text::Text::new(&config.font_map, font, None, Some(-1), label);
 
         Self {
-            width: config.width,
-
             count_r: text(&format!("{count} Notifications")),
             clear_r: text("Clear"),
 
-            theme,
+            config,
         }
     }
 
@@ -37,7 +34,7 @@ impl Bar {
     /// into rect.
     pub fn clear_rect(&self, rect: Rect) -> Rect {
         Rect {
-            x1: rect.x2 - 2. * self.theme.surface.padding.x - self.clear_r.measure().w,
+            x1: rect.x2 - 2. * self.config.theme.bar.padding.x - self.clear_r.measure().w,
             ..rect
         }
     }
@@ -50,20 +47,21 @@ impl Renderable for Bar {
         let count = self.count_r.measure();
         let clear = self.clear_r.measure();
         Size {
-            w: self.width,
-            h: 2. * self.theme.surface.padding.y + count.h.max(clear.h),
+            w: self.config.width,
+            h: 2. * self.config.theme.bar.padding.y + count.h.max(clear.h),
         }
     }
 
     fn paint(&self, cr: &cairo::Context, rect: Rect, style: &Style) -> Result<()> {
-        let surface = &self.theme.surface;
-        let border = surface.border_color.faded(style.opacity);
+        let theme = &self.config.theme;
+        let padding = &theme.bar.padding;
+        let box_style = card::Style::from_surface(&theme.bar, style.opacity);
+        let border = box_style.border_color;
         let fg = text::Style {
-            color: self.theme.label.color.faded(style.opacity),
+            color: theme.bar_label.color.faded(style.opacity),
         };
 
-        card::paint(cr, rect, &card::Style::from_surface(surface, style.opacity))
-            .context("Could not draw box")?;
+        card::paint(cr, rect, &box_style).context("Could not draw box")?;
 
         // The hover tint on the clear control, which is clipped to the rounded
         // shape of the bar.
@@ -78,7 +76,7 @@ impl Renderable for Bar {
                 rect.y1,
                 rect.w(),
                 rect.h(),
-                surface.border_radius,
+                box_style.border_radius,
             );
             cr.clip();
 
@@ -102,7 +100,7 @@ impl Renderable for Bar {
             .paint(
                 cr,
                 Rect::from_origin(
-                    rect.x1 + surface.padding.x,
+                    rect.x1 + padding.x,
                     rect.y1 + (rect.h() - count.h) / 2.,
                     count,
                 ),
@@ -115,7 +113,7 @@ impl Renderable for Bar {
             .paint(
                 cr,
                 Rect::from_origin(
-                    clear.x1 + surface.padding.x,
+                    clear.x1 + padding.x,
                     rect.y1 + (rect.h() - size.h) / 2.,
                     size,
                 ),

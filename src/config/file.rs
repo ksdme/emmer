@@ -5,7 +5,20 @@ use std::{
 
 use miette::IntoDiagnostic;
 
-use crate::config::{Config, ConfigPatch, kdl::Setting};
+use crate::config::{
+    Config, GlobalConfig, GlobalConfigPatch,
+    kdl::Setting,
+    rules::{self, RulePatch},
+};
+
+#[derive(knus::Decode)]
+struct ConfigPatch {
+    #[knus(flatten(child))]
+    global: GlobalConfigPatch,
+
+    #[knus(children(name = "rule"))]
+    rules: Vec<RulePatch>,
+}
 
 impl Config {
     /// Reads the configuration from a kdl file.
@@ -18,9 +31,14 @@ impl Config {
     /// contain the values that differ from the defaults.
     pub fn from_kdl(name: &str, contents: &str) -> miette::Result<Self> {
         let patch: ConfigPatch = knus::parse(name, contents)?;
-        let mut config = Self::default();
-        config.apply(patch);
-        Ok(config)
+
+        let mut global = GlobalConfig::default();
+        global.apply(patch.global);
+
+        Ok(Self {
+            global,
+            rules: patch.rules.into_iter().map(Into::into).collect(),
+        })
     }
 
     /// Returns the configuration as a kdl (v1) document, with the docs of each
@@ -28,7 +46,16 @@ impl Config {
     /// the ones that are unset, are commented out.
     pub fn to_kdl(&self) -> String {
         let mut out = String::new();
-        self.write_fields(&Self::default(), &mut out, 0);
+        self.global
+            .write_fields(&GlobalConfig::default(), &mut out, 0);
+
+        out.push('\n');
+        out.push_str(rules::DOCS);
+
+        for rule in &self.rules {
+            out.push('\n');
+            rule.write(&mut out);
+        }
         out
     }
 }
@@ -60,6 +87,8 @@ mod tests {
             "timeouts { default 5000; force-default true; }",
             r##"font "Inter 11"; colors { text "#000000"; }"##,
             r##"notification { title { font "Inter Italic 11"; }; }; bar { background "#ff0000"; }"##,
+            r##"rule app-name="Slack" { notification { title { color "#e01e5a"; }; actions { background "#000000"; }; }; }"##,
+            r##"width 400; rule app-name="a \"b\""; rule app-name="c" { notification { title { font "Inter 9"; }; }; }"##,
         ] {
             let config = parse(kdl).unwrap();
             assert_eq!(parse(&config.to_kdl()).unwrap(), config, "{kdl}");
@@ -74,6 +103,31 @@ mod tests {
             "\n    // The space between the edges and the contents.\n    padding {\n        // The measure in the horizontal axis.\n        // x "
         ));
         assert!(kdl.contains("\n    // Overrides the background color.\n    // background\n"));
+        assert!(kdl.ends_with(rules::DOCS));
+    }
+
+    #[test]
+    fn themes_parse() {
+        for entry in fs::read_dir(concat!(env!("CARGO_MANIFEST_DIR"), "/themes")).unwrap() {
+            let path = entry.unwrap().path();
+            if let Err(err) = Config::load(&path) {
+                panic!("{}: {err:?}", path.display());
+            }
+        }
+    }
+
+    #[test]
+    fn documented_rule_example_parses() {
+        // Skips the prose, and uncomments the example below it.
+        let example = rules::DOCS
+            .lines()
+            .skip(2)
+            .map(|line| line.strip_prefix("// ").unwrap())
+            .collect::<Vec<_>>()
+            .join("\n");
+
+        let rules = parse(&example).unwrap().rules;
+        assert_eq!(rules[0].app_name, "Slack");
     }
 
     #[test]
@@ -93,26 +147,28 @@ mod tests {
             r##"
             width 400
 
-            actions {
-                radius 0
-            }
-
             notification {
                 title {
                     color "#ff000080"
                 }
+
+                actions {
+                    radius 0
+                }
             }
             "##,
         )
-        .unwrap();
+        .unwrap()
+        .global;
 
-        let defaults = Config::default();
+        let defaults = GlobalConfig::default();
         assert_eq!(config.width, 400.);
         assert_eq!(config.anchor, defaults.anchor);
         assert_eq!(config.margin.x, defaults.margin.x);
 
-        assert_eq!(config.actions.radius, 0.);
-        assert_eq!(config.actions.padding, defaults.actions.padding);
+        let actions = &config.notification.actions;
+        assert_eq!(actions.radius, 0.);
+        assert_eq!(actions.padding, defaults.notification.actions.padding);
 
         let title = &config.notification.title;
         assert_eq!(title.color.unwrap().to_hex(), "#ff000080");
@@ -142,6 +198,21 @@ mod tests {
             ("width 1 2", "2"),
             // Duplicate field.
             ("width 1\nwidth 2", "width"),
+            // Unknown top level field.
+            ("unknown 1", "unknown 1"),
+            // Rule without criteria.
+            ("rule { }", "rule"),
+            // Unknown criteria.
+            (r#"rule urgency="low""#, "urgency"),
+            // Actions outside of the notification.
+            (r#"actions { radius 1; }"#, "actions { radius 1; }"),
+            // Global only field in a rule.
+            (r#"rule app-name="a" { width 1; }"#, "width 1;"),
+            // Unsupported field in a rule.
+            (
+                r#"rule app-name="a" { notification { radius 1; }; }"#,
+                "radius 1;",
+            ),
         ] {
             let err = parse(kdl).expect_err(kdl);
             let label = err

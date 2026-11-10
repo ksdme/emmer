@@ -75,6 +75,22 @@ anchor {
 }
 ```
 
+To change the look of the notifications from an app, add a `rule` that matches
+its name and mirrors the parts of the config to override. Like mako's criteria,
+every rule that matches applies in order, so the later ones win. For now, only
+the font and color of the title, and the colors and font of the action buttons
+can be overridden.
+
+```kdl
+rule app-name="Slack" {
+    notification {
+        title {
+            color "#e01e5a"
+        }
+    }
+}
+```
+
 ## Pending
 
 - Text alignment

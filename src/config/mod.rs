@@ -1,14 +1,16 @@
 mod computed;
 mod file;
 mod kdl;
+mod rules;
 mod theme;
 
 use kdl::settings;
 use pango::FontDescription;
+use rules::Rule;
 
 use crate::ui::anchors::{HorizontalAnchor, VerticalAnchor};
 
-pub use computed::{ComputedConfig, Surface, Text};
+pub use computed::{ComputedConfig, Surface, Text, Theme};
 pub use file::default_path;
 pub use theme::{Colors, ControlConfig, NotificationConfig};
 
@@ -63,8 +65,8 @@ settings! {
     }
 
     // TODO: Support spread on stack.
-    /// Represents the global application configuration.
-    pub struct Config {
+    /// Represents the settings that apply to every notification.
+    pub struct GlobalConfig {
         /// The width of a notification card.
         pub width: f64,
 
@@ -93,15 +95,21 @@ settings! {
         /// The notification cards.
         pub notification: NotificationConfig,
 
-        /// The action buttons below the notifications.
-        pub actions: ControlConfig,
-
         /// The dismiss-all bar.
         pub bar: ControlConfig,
     }
 }
 
-impl Default for Config {
+/// Represents the application configuration.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct Config {
+    pub global: GlobalConfig,
+
+    /// The rules, in the order they are applied in.
+    pub rules: Vec<Rule>,
+}
+
+impl Default for GlobalConfig {
     fn default() -> Self {
         Self {
             width: 320.,
@@ -131,7 +139,6 @@ impl Default for Config {
             colors: Colors::default(),
 
             notification: NotificationConfig::default(),
-            actions: ControlConfig::new(Insets { x: 16., y: 8. }),
             bar: ControlConfig::new(Insets { x: 12., y: 6. }),
         }
     }

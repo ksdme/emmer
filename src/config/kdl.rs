@@ -160,7 +160,7 @@ pub fn write_field<T: Setting>(
 /// patches and writers. The docs of the fields are written as comments.
 macro_rules! settings {
     ($(
-        $(#[doc = $doc:literal])*
+        $(#[$attr:meta])*
         pub struct $name:ident {
             $(
                 $(#[doc = $field_doc:literal])*
@@ -168,7 +168,7 @@ macro_rules! settings {
             )*
         }
     )*) => {$(
-        $(#[doc = $doc])*
+        $(#[$attr])*
         #[derive(Debug, Clone, PartialEq)]
         pub struct $name {
             $(
@@ -178,7 +178,7 @@ macro_rules! settings {
         }
 
         pastey::paste! {
-            #[derive(knus::Decode)]
+            #[derive(knus::Decode, Default)]
             pub struct [<$name Patch>] {
                 $(
                     #[knus(child)]

@@ -1,7 +1,7 @@
 use pango::FontDescription;
 
 use crate::{
-    config::{Config, ControlConfig, Insets, SpreadConfig, StackConfig},
+    config::{Config, ControlConfig, GlobalConfig, Insets, SpreadConfig, StackConfig, rules::Rule},
     ui::{
         anchors::{Anchor, HorizontalAnchor, VerticalAnchor},
         renderables::Color,
@@ -24,25 +24,43 @@ pub struct ComputedConfig {
 
     pub theme: Theme,
     pub font_map: pango::FontMap,
+
+    // Kept around to derive the themes of the apps that the rules match.
+    global: GlobalConfig,
+    rules: Vec<Rule>,
 }
 
 impl ComputedConfig {
-    pub fn new(debug_mode: bool, config: Config) -> Self {
+    pub fn new(debug_mode: bool, Config { global, rules }: Config) -> Self {
         Self {
             debug_mode,
 
-            anchors: (config.anchor.horizontal, config.anchor.vertical),
+            anchors: (global.anchor.horizontal, global.anchor.vertical),
 
-            theme: Theme::new(&config),
+            theme: Theme::new(&global),
 
-            width: config.width,
-            margin: config.margin,
+            width: global.width,
+            margin: global.margin.clone(),
 
-            stack: config.stack,
-            spread: config.spread,
+            stack: global.stack.clone(),
+            spread: global.spread.clone(),
 
             font_map: pangocairo::FontMap::default(),
+
+            global,
+            rules,
         }
+    }
+
+    /// The theme of the notifications from an app, with the rules that match
+    /// it applied in order.
+    pub fn theme_for(&self, app_name: &str) -> Theme {
+        let mut global = self.global.clone();
+        for rule in self.rules.iter().filter(|rule| rule.matches(app_name)) {
+            rule.apply_to(&mut global);
+        }
+
+        Theme::new(&global)
     }
 
     pub fn anchor(&self, l_w: f64, l_h: f64) -> Anchor {
@@ -96,7 +114,7 @@ pub struct Theme {
 }
 
 impl Theme {
-    fn new(config: &Config) -> Self {
+    fn new(config: &GlobalConfig) -> Self {
         let colors = &config.colors;
 
         let text = |font: &Option<FontDescription>, color: Option<Color>, fallback: Color| Text {
@@ -113,7 +131,7 @@ impl Theme {
         };
 
         let n = &config.notification;
-        let (actions, bar) = (&config.actions, &config.bar);
+        let (actions, bar) = (&n.actions, &config.bar);
         Self {
             notification: Surface {
                 background: n.background.unwrap_or(colors.background),
@@ -149,7 +167,7 @@ mod tests {
 
     #[test]
     fn parts_fall_back_to_the_shared_look() {
-        let mut config = Config::default();
+        let mut config = GlobalConfig::default();
         config.colors.text = Color::from_rgba_u8(0, 0, 0, 1.);
         config.bar.background = Some(Color::from_rgba_u8(255, 0, 0, 1.));
         config.bar.font = Some(FontDescription::from_string("Inter 12"));
@@ -162,5 +180,32 @@ mod tests {
         assert_eq!(theme.footer.color, config.colors.muted);
         assert_eq!(theme.button.background, config.colors.background);
         assert_eq!(theme.bar.background.to_hex(), "#ff0000");
+    }
+
+    #[test]
+    fn matching_rules_override_the_theme_in_order() {
+        let config = Config::from_kdl(
+            "config.kdl",
+            r##"
+            colors { text "#ffffff"; }
+            notification { title { font "Inter 9"; }; }
+
+            rule app-name="Slack" { notification { title { color "#ff0000"; }; }; }
+            rule app-name="Firefox" { notification { title { color "#00ff00"; }; }; }
+            rule app-name="Slack" { notification { title { color "#0000ff"; }; actions { color "#00ffff"; }; }; }
+            "##,
+        )
+        .unwrap();
+        let config = ComputedConfig::new(false, config);
+
+        let slack = config.theme_for("Slack");
+        assert_eq!(slack.title.color.to_hex(), "#0000ff");
+        assert_eq!(slack.title.font.to_str(), "Inter 9");
+        assert_eq!(slack.body.color.to_hex(), "#ffffff");
+        assert_eq!(slack.button_label.color.to_hex(), "#00ffff");
+        assert_eq!(slack.button.background, config.theme.button.background);
+
+        assert_eq!(config.theme_for("Firefox").title.color.to_hex(), "#00ff00");
+        assert_eq!(config.theme_for("slack").title.color.to_hex(), "#ffffff");
     }
 }

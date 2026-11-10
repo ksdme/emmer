@@ -15,6 +15,7 @@ use crate::{
 #[derive(Debug)]
 pub struct Notification {
     config: Rc<ComputedConfig>,
+    theme: Rc<config::Theme>,
 
     // The edge the contents stick to when they are clipped.
     clip_anchor: VerticalAnchor,
@@ -30,13 +31,13 @@ pub struct Notification {
 impl Notification {
     pub fn new(
         config: Rc<ComputedConfig>,
+        theme: Rc<config::Theme>,
         app: Option<&str>,
         image: Option<dbus::image::Image>,
         title: Option<&str>,
         body: Option<&str>,
         created_at: Option<&str>,
     ) -> Result<Self> {
-        let theme = &config.theme;
         let padding = &theme.notification.padding;
 
         let image_r = if let Some(image) = image {
@@ -71,6 +72,7 @@ impl Notification {
                 .map(|created| text(&theme.footer.font, None, Some(-1), created)),
 
             config,
+            theme,
         })
     }
 
@@ -86,7 +88,7 @@ impl Notification {
         let image_h = self.image_r.as_ref().map(|r| r.measure().h).unwrap_or(0.);
 
         let title_gap = if title_h > 0. && body_h > 0. {
-            self.config.theme.title_gap
+            self.theme.title_gap
         } else {
             0.
         };
@@ -111,7 +113,7 @@ impl Notification {
         let m_h = self.footer_height();
         let c_h = self.content_height();
         let footer_gap = if c_h > 0. && m_h > 0. {
-            self.config.theme.footer_gap
+            self.theme.footer_gap
         } else {
             0.
         };
@@ -126,12 +128,12 @@ impl Renderable for Notification {
     fn measure(&self) -> Size {
         Size {
             w: self.config.width,
-            h: self.inner_height() + 2. * self.config.theme.notification.padding.y,
+            h: self.inner_height() + 2. * self.theme.notification.padding.y,
         }
     }
 
     fn paint(&self, cr: &cairo::Context, rect: Rect, style: &Style) -> Result<()> {
-        let theme = &self.config.theme;
+        let theme = &self.theme;
         let padding = &theme.notification.padding;
 
         // The base.

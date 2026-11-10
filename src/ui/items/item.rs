@@ -78,8 +78,10 @@ impl Item {
         config: Rc<ComputedConfig>,
         layout: &Layout,
     ) -> Result<Self> {
+        let theme = Rc::new(config.theme_for(&notif.app_name));
         let mut notif_r = notification::Notification::new(
             config.clone(),
+            theme.clone(),
             Some(&notif.app_name),
             notif.image,
             notif.title.as_deref(),
@@ -109,14 +111,19 @@ impl Item {
 
             // If there are more than one actions, we turn all of them into buttons.
             actions => {
-                let gap = config.theme.button_gap;
+                let gap = theme.button_gap;
 
                 // Assumes that buttons are only shown in spread mode which means the available
                 // width for the buttons to spread equals to that of the notification card.
                 let buttons = actions
                     .iter()
                     .scan((0., gap), |(x, y), action| {
-                        let r = button::Button::new(config.clone(), action.label(), Some(w as i32));
+                        let r = button::Button::new(
+                            &config,
+                            theme.clone(),
+                            action.label(),
+                            Some(w as i32),
+                        );
 
                         let b_size = r.measure();
                         let (b_w, b_h) = (b_size.w, b_size.h);

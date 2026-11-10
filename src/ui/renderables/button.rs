@@ -3,21 +3,20 @@ use std::rc::Rc;
 use anyhow::{Context, Result};
 
 use crate::{
-    config::ComputedConfig,
+    config::{ComputedConfig, Theme},
     ui::renderables::{Rect, Renderable, Size, card, text},
 };
 
 /// Represents a generic button.
 #[derive(Debug)]
 pub struct Button {
-    config: Rc<ComputedConfig>,
+    theme: Rc<Theme>,
 
     label_r: text::Text,
 }
 
 impl Button {
-    pub fn new(config: Rc<ComputedConfig>, label: &str, max_w: Option<i32>) -> Self {
-        let theme = &config.theme;
+    pub fn new(config: &ComputedConfig, theme: Rc<Theme>, label: &str, max_w: Option<i32>) -> Self {
         let padding = &theme.button.padding;
 
         Self {
@@ -29,7 +28,7 @@ impl Button {
                 label,
             ),
 
-            config,
+            theme,
         }
     }
 }
@@ -38,7 +37,7 @@ impl Renderable for Button {
     type Style = Style;
 
     fn measure(&self) -> Size {
-        let padding = &self.config.theme.button.padding;
+        let padding = &self.theme.button.padding;
         let label = self.label_r.measure();
         Size {
             w: 2. * padding.x + label.w,
@@ -47,7 +46,7 @@ impl Renderable for Button {
     }
 
     fn paint(&self, cr: &cairo::Context, rect: Rect, style: &Style) -> Result<()> {
-        let theme = &self.config.theme;
+        let theme = &self.theme;
         let surface = &theme.button;
 
         let mut box_style = card::Style::from_surface(surface, style.opacity);

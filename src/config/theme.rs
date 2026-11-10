@@ -23,6 +23,7 @@ settings! {
     }
 
     /// The look of a piece of text.
+    #[derive(Default)]
     pub struct TextConfig {
         /// Overrides the font of the text.
         pub font: Option<FontDescription>,
@@ -81,6 +82,9 @@ settings! {
 
         /// The image or the icon.
         pub image: ImageConfig,
+
+        /// The action buttons below the notification.
+        pub actions: ControlConfig,
     }
 
     /// The look of a clickable control.
@@ -138,10 +142,7 @@ impl Default for NotificationConfig {
                 color: None,
                 gap: 8.,
             },
-            body: TextConfig {
-                font: None,
-                color: None,
-            },
+            body: TextConfig::default(),
             footer: SpacedTextConfig {
                 font: None,
                 color: None,
@@ -152,6 +153,8 @@ impl Default for NotificationConfig {
                 radius: 6.,
                 gap: 8.,
             },
+
+            actions: ControlConfig::new(Insets { x: 16., y: 8. }),
         }
     }
 }

@@ -67,7 +67,7 @@ fn main() -> Result<()> {
     let (server_tx, mut server_rx) = tokio::sync::mpsc::unbounded_channel::<ServerMessage>();
 
     // Start the dbus service in a separate thread with tokio.
-    let timeouts = config.timeouts.clone();
+    let timeouts = config.global.timeouts.clone();
     let service_thread = thread::spawn(move || {
         let task = tokio::runtime::Builder::new_current_thread()
             .enable_all()

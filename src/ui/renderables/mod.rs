@@ -265,6 +265,13 @@ impl<T: Interp> Animated<T> {
         self.timing = timing;
     }
 
+    /// Sets the value immediately, cancelling any transition underway.
+    pub fn jump_to(&mut self, to: T) {
+        self.value = to;
+        self.from = to;
+        self.to = to;
+    }
+
     /// Progresses the value to now and returns a boolean indicating if the
     /// transition has completed.
     pub fn tick(&mut self, now: Instant) -> bool {
@@ -394,6 +401,13 @@ macro_rules! transitionable {
                     )*
                 }
 
+                /// Sets every field immediately, cancelling any transitions underway.
+                pub fn jump_to(&mut self, to: $name) {
+                    $(
+                        self.$field.jump_to(to.$field);
+                    )*
+                }
+
                 /// Progresses all the fields to now and returns a boolean indicating
                 /// if all of their transitions have completed.
                 pub fn tick(&mut self, now: std::time::Instant) -> bool {
@@ -487,6 +501,18 @@ mod tests {
 
         assert!(value.tick(ms(t0, 100)));
         assert_eq!(value.get(), 1.);
+    }
+
+    #[test]
+    fn jump_to_settles_immediately() {
+        let t0 = Instant::now();
+        let mut value = Animated::new(0.);
+        value.animate_to(1., LINEAR, t0);
+        value.jump_to(0.25);
+
+        assert!(value.tick(ms(t0, 50)));
+        assert_eq!(value.get(), 0.25);
+        assert_eq!(value.target(), 0.25);
     }
 
     #[test]

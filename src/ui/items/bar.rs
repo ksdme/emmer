@@ -11,7 +11,10 @@ use crate::{
     transitionable,
     ui::{
         items::{layout::Layout, stack::AppCommand},
-        renderables::{Animated, Easing, Rect, Renderable, Timing, bar},
+        renderables::{
+            Animated, Easing, Rect, Renderable, Timing,
+            bar::{self, Control, Mode},
+        },
     },
 };
 
@@ -30,32 +33,38 @@ pub struct Bar {
     config: Rc<ComputedConfig>,
 
     count: usize,
+    mode: Mode,
 
     bar_r: bar::Bar,
     // The layout state of the bar, which is only ever driven by set_target.
     visual: AnimatedTarget,
-    // The hover tint on the clear control.
     light: Animated<f64>,
 
-    hovering_clear: bool,
+    hovering: Option<Control>,
 }
 
 impl Bar {
     pub fn new(config: Rc<ComputedConfig>) -> Self {
         Self {
-            bar_r: bar::Bar::new(config.clone(), 0),
+            bar_r: bar::Bar::new(config.clone(), 0, Mode::Expanded),
             config,
 
             count: 0,
+            mode: Mode::Expanded,
 
             visual: AnimatedTarget::new(Target::default()),
             light: Animated::new(0.),
-            hovering_clear: false,
+            hovering: None,
         }
     }
 
     fn shown(&self) -> bool {
         self.count > 1
+    }
+
+    /// Whether the notification cards behind the bar are hidden.
+    pub fn stashed(&self) -> bool {
+        self.mode == Mode::Stashed
     }
 
     /// The distance by which the bar pushes the items away from the anchored
@@ -71,15 +80,36 @@ impl Bar {
     /// Updates the number of notifications the bar represents. This changes its
     /// push, so the layout should be refreshed with set_target afterwards.
     pub fn set_count(&mut self, count: usize, now: Instant) {
+        // With only one card left there is nothing to stash, so reset before
+        // rebuilding the label.
+        if count <= 1 {
+            self.mode = Mode::Expanded;
+            let _ = self.set_hovering(None, now);
+        }
+
         // The label is kept while hiding so that it does not change as it fades.
         if count > 1 && count != self.count {
-            self.bar_r = bar::Bar::new(self.config.clone(), count);
+            self.bar_r = bar::Bar::new(self.config.clone(), count, self.mode);
         }
         self.count = count;
+    }
 
-        if !self.shown() {
-            let _ = self.set_hovering_clear(false, now);
+    /// Stashes or expands the cards behind the bar. Returns whether the state
+    /// changed.
+    pub fn set_stashed(&mut self, stashed: bool, now: Instant) -> bool {
+        let mode = if stashed {
+            Mode::Stashed
+        } else {
+            Mode::Expanded
+        };
+        if self.mode == mode || !self.shown() {
+            return false;
         }
+
+        self.mode = mode;
+        self.bar_r = bar::Bar::new(self.config.clone(), self.count, mode);
+        let _ = self.set_hovering(None, now);
+        true
     }
 
     /// Moves the bar towards its target in the layout. The bar always sits
@@ -116,38 +146,42 @@ impl Bar {
         (target.opacity > 0.).then_some(target.rect)
     }
 
-    fn clear_hit(&self, at: (f64, f64)) -> bool {
+    fn control_at(&self, at: (f64, f64)) -> Option<Control> {
         self.target()
-            .is_some_and(|rect| self.bar_r.clear_rect(rect).contains(at))
+            .and_then(|rect| self.bar_r.control_at(rect, at))
     }
 
-    // Updates the hover tint on the clear control and returns a boolean
+    // Updates the hover tint on the active control and returns a boolean
     // indicating if it changed.
-    fn set_hovering_clear(&mut self, hovering: bool, now: Instant) -> bool {
-        if self.hovering_clear == hovering {
+    fn set_hovering(&mut self, hovering: Option<Control>, now: Instant) -> bool {
+        if self.hovering == hovering {
             return false;
         }
 
-        self.hovering_clear = hovering;
-        self.light.animate_to(
-            if hovering { 0.03 } else { 0. },
-            Timing::new(Duration::from_millis(100), Easing::EaseOutCubic),
-            now,
-        );
+        self.hovering = hovering;
+        match hovering {
+            Some(_) => self.light.animate_to(
+                0.03,
+                Timing::new(Duration::from_millis(100), Easing::EaseOutCubic),
+                now,
+            ),
+            // Jump so we do not keep a lit_control-less fade that never paints.
+            None => self.light.jump_to(0.),
+        }
 
         true
     }
 
     pub fn on_hover(&mut self, event: &PointerEvent) -> Vec<AppCommand> {
-        let hit = self.clear_hit(event.position);
+        let hit = self.control_at(event.position);
 
-        let mut commands = vec![AppCommand::SetCursor(if hit {
+        let mut commands = vec![AppCommand::SetCursor(if hit.is_some() {
             CursorIcon::Pointer
         } else {
             CursorIcon::Default
         })];
 
-        if self.set_hovering_clear(hit, Instant::now()) {
+        if self.set_hovering(hit, Instant::now()) {
             commands.push(AppCommand::Redraw);
         }
 
@@ -155,17 +189,17 @@ impl Bar {
     }
 
     pub fn on_leave(&mut self) -> Vec<AppCommand> {
-        if self.set_hovering_clear(false, Instant::now()) {
+        if self.set_hovering(None, Instant::now()) {
             vec![AppCommand::Redraw]
         } else {
             vec![]
         }
     }
 
-    /// The left click handler on the bar. Returns a boolean indicating if all
-    /// the notifications should be dismissed.
-    pub fn on_left_click(&mut self, event: &PointerEvent) -> bool {
-        self.clear_hit(event.position)
+    /// The left click handler on the bar. Returns the control that was clicked,
+    /// if any.
+    pub fn on_left_click(&mut self, event: &PointerEvent) -> Option<Control> {
+        self.control_at(event.position)
     }
 
     /// Progresses all the transitions attached to the bar and returns a boolean
@@ -188,7 +222,8 @@ impl Bar {
                 cr,
                 rect,
                 &bar::Style {
-                    clear_light: self.light.get(),
+                    control_light: self.light.get(),
+                    lit_control: self.hovering,
                     opacity: visual.opacity,
                 },
             )

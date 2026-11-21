@@ -52,6 +52,9 @@ pub struct Layout<'a> {
 
     /// The distance from the anchored edge at which the stack starts.
     pub origin: f64,
+
+    /// When set, every card is hidden so that only the bar remains.
+    pub stashed: bool,
 }
 
 impl Layout<'_> {
@@ -90,7 +93,7 @@ impl Layout<'_> {
         let targets = items
             .into_iter()
             .map(|item| {
-                let shown = no < max_count && !item.dismissed;
+                let shown = !self.stashed && no < max_count && !item.dismissed;
                 let (target, next) = match self.presentation {
                     Presentation::Stacked => self.stacked(item, no, shown, d),
                     Presentation::Spread => self.spread(item, shown, d),
@@ -218,6 +221,20 @@ mod tests {
             stack: &STACK,
             spread: &SPREAD,
             origin: 32.,
+            stashed: false,
+        }
+    }
+
+    #[test]
+    fn stashed_hides_every_card() {
+        let anchor = anchor(VerticalAnchor::Top);
+        let mut layout = layout(&anchor, Presentation::Stacked);
+        layout.stashed = true;
+
+        let targets = layout.targets([input(80., false), input(60., false)]);
+        for target in targets {
+            assert_eq!(target.style.outer_opacity, 0.);
+            assert_eq!(target.style.inner_opacity, 0.);
         }
     }
 

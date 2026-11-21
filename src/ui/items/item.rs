@@ -94,11 +94,14 @@ impl Item {
         let size = notif_r.measure();
         let w = size.w;
 
+        // Stashed cards stay invisible; starting opaque would flash a spawn
+        // animation before the layout hides them.
+        let opacity = if layout.stashed { 0. } else { 1. };
         let visual = layout::Target {
             rect: layout.spawn(size),
             style: notification::Style {
-                outer_opacity: 1.,
-                inner_opacity: 1.,
+                outer_opacity: opacity,
+                inner_opacity: opacity,
             },
             buttons: layout::ButtonsTarget { opacity: 0. },
         };
@@ -468,6 +471,11 @@ impl Item {
             Timing::new(Duration::from_millis(200), Easing::EaseOutCubic),
             now,
         );
+    }
+
+    /// Places the item at a layout target with no transition.
+    pub fn jump_to_target(&mut self, target: layout::Target) {
+        self.visual.jump_to(target);
     }
 }
 

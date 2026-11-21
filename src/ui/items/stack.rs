@@ -13,7 +13,10 @@ use crate::{
     ui::{
         anchors::{Anchor, VerticalAnchor},
         items::{Item, bar::Bar, layout::Layout},
-        renderables::{Animated, Easing, Rect, Timing},
+        renderables::{
+            Animated, Easing, Rect, Timing,
+            bar::Control,
+        },
     },
 };
 
@@ -253,20 +256,40 @@ impl Stack {
         }
 
         self.presentation = presentation;
-
-        // When the presentation is Spread, we assume that a user is interacting
-        // with them. In that case, it doesn't make sense to dismiss them.
-        // If there are some items that have almost expired, they might still be
-        // dismissed though which is not ideal.
-        match self.presentation {
-            Presentation::Spread => self.clock.pause(),
-            Presentation::Stacked => self.clock.resume(),
-        }
+        self.sync_clock();
 
         // Update the layout of the items.
         self.update_visual_states();
 
         true
+    }
+
+    // Pauses expiry while the user is interacting with a spread or has parked
+    // the cards behind a stashed bar.
+    fn sync_clock(&mut self) {
+        if self.bar.stashed() || self.presentation == Presentation::Spread {
+            self.clock.pause();
+        } else {
+            self.clock.resume();
+        }
+    }
+
+    /// Hides or shows the notification cards behind the bar.
+    fn set_stashed(&mut self, stashed: bool) -> Vec<AppCommand> {
+        let now = Instant::now();
+        if !self.bar.set_stashed(stashed, now) {
+            return vec![];
+        }
+
+        // A stashed stack has no cards to hover, so leave Spread if needed.
+        if stashed {
+            self.presentation = Presentation::Stacked;
+            self.hovering = None;
+        }
+        self.sync_clock();
+        self.update_visual_states();
+
+        vec![AppCommand::Redraw]
     }
 
     // Takes only the fields it needs, so that the layout does not hold onto the
@@ -287,6 +310,7 @@ impl Stack {
             spread: &config.spread,
 
             origin: config.margin.y + bar.push(),
+            stashed: bar.stashed(),
         }
     }
 
@@ -305,8 +329,13 @@ impl Stack {
         self.bar.set_target(&layout, now);
 
         let targets = layout.targets(self.items.values().rev().map(Item::layout_input));
+        // Stashed cards are invisible, so skip the transitions and settle them.
         for (item, target) in self.items.values_mut().rev().zip(targets) {
-            item.set_target(target, now);
+            if layout.stashed {
+                item.jump_to_target(target);
+            } else {
+                item.set_target(target, now);
+            }
         }
 
         self.overflow = layout.overflow(self.items.values().rev().map(Item::layout_input));
@@ -314,6 +343,11 @@ impl Stack {
     }
 
     fn set_scroll(&mut self, distance: f64, now: Instant) {
+        if self.bar.stashed() {
+            self.scroll.jump_to(distance);
+            return;
+        }
+
         self.scroll.animate_to(
             distance,
             Timing::new(Duration::from_millis(120), Easing::EaseOutCubic),
@@ -360,7 +394,8 @@ impl Stack {
         }
         let bar_commands = self.bar.on_leave();
 
-        // Trigger on_hover on the current item.
+        // Trigger on_hover on the current item. Stashed cards have opacity 0,
+        // so find_at misses them and the stack stays stacked.
         let content = self.content_event(event);
         let (hit, mut commands) = if let Some(content) = content.as_ref()
             && let Some(item) = self.find_at_mut(content.position)
@@ -406,10 +441,11 @@ impl Stack {
     /// this stack.
     pub fn on_left_click(&mut self, event: &PointerEvent) -> Vec<AppCommand> {
         if self.bar_hit(event.position) {
-            return if self.bar.on_left_click(event) {
-                self.dismiss_all()
-            } else {
-                vec![]
+            return match self.bar.on_left_click(event) {
+                Some(Control::Clear) => self.dismiss_all(),
+                Some(Control::Stash) => self.set_stashed(true),
+                Some(Control::Expand) => self.set_stashed(false),
+                None => vec![],
             };
         }
 
